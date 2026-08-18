@@ -11,22 +11,41 @@ final class CodexTokenRefreshServiceTests: XCTestCase {
         XCTAssertTrue(UsageService.requiresRelogin("REFRESH FAILED - RE-LOGIN REQUIRED"))
     }
 
-    func testProactiveRefreshUsesFiveMinuteBoundary() throws {
+    func testProactiveRefreshUsesFiveMinuteBoundaryWhenDailyRefreshIsCurrent() throws {
         let now = Date(timeIntervalSince1970: 2_000_000_000)
         let withinWindow = try XCTUnwrap(StoredCodexAuth.parse(root: authRoot(
             now: now,
-            accessExpiresAt: now.addingTimeInterval(5 * 60).timeIntervalSince1970
+            accessExpiresAt: now.addingTimeInterval(5 * 60).timeIntervalSince1970,
+            lastRefreshDate: now
         )))
         let outsideWindow = try XCTUnwrap(StoredCodexAuth.parse(root: authRoot(
             now: now,
-            accessExpiresAt: now.addingTimeInterval(6 * 60).timeIntervalSince1970
+            accessExpiresAt: now.addingTimeInterval(6 * 60).timeIntervalSince1970,
+            lastRefreshDate: now
         )))
 
         XCTAssertTrue(CodexTokenRefreshService.shouldRefresh(withinWindow, at: now))
         XCTAssertFalse(CodexTokenRefreshService.shouldRefresh(outsideWindow, at: now))
     }
 
-    func testEightDayFallbackAppliesWhenTokenExpiryIsUnavailable() throws {
+    func testDailyRefreshUsesTwentyFourHourBoundaryForLongLivedToken() throws {
+        let now = Date(timeIntervalSince1970: 2_000_000_000)
+        let due = try XCTUnwrap(StoredCodexAuth.parse(root: authRoot(
+            now: now,
+            accessExpiresAt: now.addingTimeInterval(10 * 24 * 60 * 60).timeIntervalSince1970,
+            lastRefreshDate: now.addingTimeInterval(-24 * 60 * 60)
+        )))
+        let notDue = try XCTUnwrap(StoredCodexAuth.parse(root: authRoot(
+            now: now,
+            accessExpiresAt: now.addingTimeInterval(10 * 24 * 60 * 60).timeIntervalSince1970,
+            lastRefreshDate: now.addingTimeInterval(-(24 * 60 * 60) + 1)
+        )))
+
+        XCTAssertTrue(CodexTokenRefreshService.shouldRefresh(due, at: now))
+        XCTAssertFalse(CodexTokenRefreshService.shouldRefresh(notDue, at: now))
+    }
+
+    func testDailyRefreshAppliesWhenTokenExpiryIsUnavailable() throws {
         let now = Date(timeIntervalSince1970: 2_000_000_000)
         var root = authRoot(now: now, accessExpiresAt: now.timeIntervalSince1970)
         var tokens = try XCTUnwrap(root["tokens"] as? [String: Any])
@@ -38,8 +57,20 @@ final class CodexTokenRefreshServiceTests: XCTestCase {
         tokens["access_token"] = jwt([:])
         root["tokens"] = tokens
         root["last_refresh"] = ISO8601DateFormatter.codexVitals.string(
-            from: now.addingTimeInterval(-8 * 24 * 60 * 60)
+            from: now.addingTimeInterval(-24 * 60 * 60)
         )
+        let auth = try XCTUnwrap(StoredCodexAuth.parse(root: root))
+
+        XCTAssertTrue(CodexTokenRefreshService.shouldRefresh(auth, at: now))
+    }
+
+    func testMissingRefreshTimestampIsTreatedAsDue() throws {
+        let now = Date(timeIntervalSince1970: 2_000_000_000)
+        var root = authRoot(
+            now: now,
+            accessExpiresAt: now.addingTimeInterval(10 * 24 * 60 * 60).timeIntervalSince1970
+        )
+        root.removeValue(forKey: "last_refresh")
         let auth = try XCTUnwrap(StoredCodexAuth.parse(root: root))
 
         XCTAssertTrue(CodexTokenRefreshService.shouldRefresh(auth, at: now))
@@ -247,7 +278,8 @@ final class CodexTokenRefreshServiceTests: XCTestCase {
         now: Date,
         accessExpiresAt: TimeInterval,
         accessToken: String? = nil,
-        refreshToken: String = "refresh"
+        refreshToken: String = "refresh",
+        lastRefreshDate: Date? = nil
     ) -> [String: Any] {
         let idToken = jwt([
             "sub": "subject-test",
@@ -258,7 +290,9 @@ final class CodexTokenRefreshServiceTests: XCTestCase {
         ])
         return [
             "auth_mode": "chatgpt",
-            "last_refresh": ISO8601DateFormatter.codexVitals.string(from: now.addingTimeInterval(-9 * 24 * 60 * 60)),
+            "last_refresh": ISO8601DateFormatter.codexVitals.string(
+                from: lastRefreshDate ?? now.addingTimeInterval(-9 * 24 * 60 * 60)
+            ),
             "tokens": [
                 "id_token": idToken,
                 "access_token": accessToken ?? jwt(["exp": accessExpiresAt]),

@@ -339,7 +339,7 @@ final class CodexCanonicalCredentialStore: @unchecked Sendable {
 
 final class CodexTokenRefreshService: @unchecked Sendable {
     static let proactiveWindow: TimeInterval = 5 * 60
-    static let fallbackRefreshAge: TimeInterval = 8 * 24 * 60 * 60
+    static let periodicRefreshAge: TimeInterval = 24 * 60 * 60
     static let temporaryFailureMessage = "Token refresh temporarily unavailable"
     static let reloginRequiredMessage = "Refresh failed - re-login required"
 
@@ -416,11 +416,16 @@ final class CodexTokenRefreshService: @unchecked Sendable {
     static func shouldRefresh(_ auth: StoredCodexAuth, at now: Date) -> Bool {
         if auth.accessExpiresAt > 0 {
             let expiresAt = Date(timeIntervalSince1970: TimeInterval(auth.accessExpiresAt) / 1000)
-            return expiresAt <= now.addingTimeInterval(proactiveWindow)
+            if expiresAt <= now.addingTimeInterval(proactiveWindow) {
+                return true
+            }
         }
 
-        guard let lastRefresh = auth.lastRefreshDate else { return false }
-        return lastRefresh <= now.addingTimeInterval(-fallbackRefreshAge)
+        guard let lastRefresh = auth.lastRefreshDate else {
+            // A missing timestamp cannot prove the credential was refreshed in the last day.
+            return true
+        }
+        return lastRefresh <= now.addingTimeInterval(-periodicRefreshAge)
     }
 
     private func refreshWithinGate(
