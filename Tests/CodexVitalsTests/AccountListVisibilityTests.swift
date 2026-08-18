@@ -96,6 +96,40 @@ final class AccountListVisibilityTests: XCTestCase {
         XCTAssertEqual(account.freePlanResetSeconds, 86_400)
     }
 
+    func testDepletedAccountCanStillOfferCodexSwitch() {
+        let account = Account(
+            id: "depleted@example.com|acc-depleted",
+            profileKey: "openai-codex:team:depleted@example.com",
+            email: "depleted@example.com",
+            workspace: "pro",
+            plan: "pro",
+            sessionFree: 0,
+            weeklyFree: 0,
+            sessionResetSeconds: 3_600,
+            weeklyResetSeconds: 86_400,
+            planRenewalDate: nil,
+            hasError: false,
+            errorMessage: nil
+        )
+
+        XCTAssertFalse(account.isUsableForCodex)
+        XCTAssertTrue(AccountCompactRow.canOfferCodexSwitch(
+            showsCodexControls: true,
+            isActiveInCodex: false,
+            needsRelogin: false,
+            isRelogging: false
+        ))
+    }
+
+    func testCodexSwitchStaysHiddenWhenReloginIsRequired() {
+        XCTAssertFalse(AccountCompactRow.canOfferCodexSwitch(
+            showsCodexControls: true,
+            isActiveInCodex: false,
+            needsRelogin: true,
+            isRelogging: false
+        ))
+    }
+
     @MainActor
     func testWeeklyOnlyPrimaryWindowDoesNotCreateFakeFiveHourQuota() {
         let windows = UsageService.quotaWindows(from: [

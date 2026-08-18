@@ -478,11 +478,24 @@ struct AccountCompactRow: View {
         account.hasDisplayAlias ? 40 : 34
     }
     private var canShowSwapControl: Bool {
+        Self.canOfferCodexSwitch(
+            showsCodexControls: showsCodexControls,
+            isActiveInCodex: isActiveInCodex,
+            needsRelogin: needsRelogin,
+            isRelogging: isRelogging
+        )
+    }
+
+    static func canOfferCodexSwitch(
+        showsCodexControls: Bool,
+        isActiveInCodex: Bool,
+        needsRelogin: Bool,
+        isRelogging: Bool
+    ) -> Bool {
         showsCodexControls
             && !isActiveInCodex
             && !needsRelogin
             && !isRelogging
-            && account.isUsableForCodex
     }
 
     private var rowBackgroundColor: Color {
