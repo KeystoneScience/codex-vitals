@@ -1,6 +1,6 @@
-# Codex Vitals for Windows
+# Headroom for Windows
 
-This folder contains the Windows implementation of Codex Vitals.
+This folder contains the Windows implementation of Headroom.
 
 ## What It Does
 
@@ -28,7 +28,7 @@ powershell -ExecutionPolicy Bypass -File .\windows\build.ps1 -Channel Direct -Ve
 
 This produces:
 
-- `%REPO%\\windows\\dist\\CodexVitals.exe`
+- `%REPO%\\windows\\dist\\Headroom.exe`
 
 The direct build pins WinSparkle 0.9.3, verifies the official archive SHA-256,
 and bundles its x64 DLL. A Store build can be produced with `-Channel Store`;
@@ -46,11 +46,11 @@ powershell -ExecutionPolicy Bypass -File .\windows\package_store.ps1 -Clean -Ver
 
 This produces:
 
-- `%REPO%\ReleaseArtifacts\Store\CodexVitals-Windows-Store-1.0.0.0-x64.msix`
+- `%REPO%\ReleaseArtifacts\Store\Headroom-Windows-Store-1.0.0.0-x64.msix`
 - the package SHA-256 file
 
 The package requires Windows 10 version 2004 (build 19041) or newer. It declares
-the `runFullTrust` restricted capability because Codex Vitals is a packaged
+the `runFullTrust` restricted capability because Headroom is a packaged
 desktop application that reads and updates the user's local Codex state.
 
 ## Build the Installer
@@ -61,7 +61,7 @@ powershell -ExecutionPolicy Bypass -File .\windows\package_release.ps1 -Clean -V
 
 This produces:
 
-- `%REPO%\\ReleaseArtifacts\\CodexVitals-Windows-1.0.0-Setup.exe`
+- `%REPO%\\ReleaseArtifacts\\Headroom-Windows-1.0.0-Setup.exe`
 - the installer SHA-256 file
 - a signed `windows-appcast.xml`
 - GitHub release notes

@@ -1,4 +1,4 @@
-"""Codex Vitals Windows package."""
+"""Headroom Windows package."""
 
 __all__ = ["__version__"]
 

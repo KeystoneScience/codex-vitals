@@ -1,6 +1,6 @@
 ---
 name: Bug report
-about: Report a reproducible Codex Vitals issue
+about: Report a reproducible Headroom issue
 title: ""
 labels: bug
 assignees: ""

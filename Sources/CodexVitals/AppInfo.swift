@@ -1,7 +1,7 @@
 import Foundation
 
 enum AppInfo {
-    static let name = "Codex Vitals"
+    static let name = "Headroom"
     static let publisher = "Keystone Science"
     static let contributors = "Nathan Stone · Jackson Stone"
     static let repositoryURL = URL(string: "https://github.com/TheMakerOfWorlds/codex-vitals")!

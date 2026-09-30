@@ -78,18 +78,21 @@ class AppSettingsStore:
 
 def startup_shortcut_path(appdata: Path | None = None) -> Path:
     root = appdata or Path(os.environ.get("APPDATA", Path.home() / "AppData" / "Roaming"))
-    return root / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Startup" / "Codex Vitals.lnk"
+    return root / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Startup" / "Headroom.lnk"
 
 
 def is_startup_enabled() -> bool:
-    return startup_shortcut_path().exists()
+    shortcut_path = startup_shortcut_path()
+    return shortcut_path.exists() or shortcut_path.with_name("Codex Vitals.lnk").exists()
 
 
 def set_startup_enabled(enabled: bool) -> None:
     shortcut_path = startup_shortcut_path()
+    legacy_shortcut_path = shortcut_path.with_name("Codex Vitals.lnk")
     if not enabled:
         try:
             shortcut_path.unlink(missing_ok=True)
+            legacy_shortcut_path.unlink(missing_ok=True)
         except OSError as error:
             raise AppSettingsError(f"Could not disable launch at login: {error}") from error
         return
@@ -124,6 +127,11 @@ def set_startup_enabled(enabled: bool) -> None:
     if result.returncode != 0:
         detail = result.stderr.strip() or result.stdout.strip() or "PowerShell returned an error."
         raise AppSettingsError(f"Could not enable launch at login: {detail}")
+    # Remove the previous product's shortcut only after its replacement succeeds.
+    try:
+        legacy_shortcut_path.unlink(missing_ok=True)
+    except OSError as error:
+        raise AppSettingsError(f"Could not remove the previous launch-at-login shortcut: {error}") from error
 
 
 def _startup_command() -> tuple[Path, str, Path]:
@@ -152,7 +160,7 @@ def _build_shortcut_script(
     target_literal = _powershell_literal(str(target))
     arguments_literal = _powershell_literal(arguments)
     working_directory_literal = _powershell_literal(str(working_directory))
-    description = _powershell_literal("Launch Codex Vitals at sign-in")
+    description = _powershell_literal("Launch Headroom at sign-in")
     icon = _powershell_literal(f"{target},0")
     return "\n".join(
         [

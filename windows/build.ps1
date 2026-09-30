@@ -25,7 +25,7 @@ if ($pythonCommand) {
 }
 
 if (-not [Environment]::Is64BitProcess) {
-    throw "Codex Vitals requires a 64-bit Python build."
+    throw "Headroom requires a 64-bit Python build."
 }
 
 $distDir = Join-Path $windowsRoot "dist"
@@ -89,12 +89,12 @@ VSVersionInfo(
         '040904B0',
         [
           StringStruct('CompanyName', 'Keystone Science'),
-          StringStruct('FileDescription', 'Codex Vitals for Windows'),
+          StringStruct('FileDescription', 'Headroom for Windows'),
           StringStruct('FileVersion', '$dottedFileVersion'),
-          StringStruct('InternalName', 'CodexVitals'),
+          StringStruct('InternalName', 'Headroom'),
           StringStruct('LegalCopyright', 'Copyright 2026 Keystone Science. Nathan Stone and Jackson Stone.'),
-          StringStruct('OriginalFilename', 'CodexVitals.exe'),
-          StringStruct('ProductName', 'Codex Vitals'),
+          StringStruct('OriginalFilename', 'Headroom.exe'),
+          StringStruct('ProductName', 'Headroom'),
           StringStruct('ProductVersion', '$Version')
         ]
       )
@@ -106,10 +106,12 @@ VSVersionInfo(
 
 $iconPath = Join-Path $windowsRoot "build-assets\CodexVitals.ico"
 $iconSource = Join-Path $windowsRoot "build-assets\CodexVitals-1024.png"
+$headerIconSource = Join-Path $windowsRoot "build-assets\HeadroomHeader.png"
 $studioLogoSource = Join-Path $windowsRoot "build-assets\RamterStudioLogo.png"
 $entryPath = Join-Path $windowsRoot "CodexVitalsWindows.pyw"
 $pyInstallerExtraArgs = @(
     "--add-data", "$iconSource;build-assets",
+    "--add-data", "$headerIconSource;build-assets",
     "--add-data", "$studioLogoSource;build-assets",
     "--add-data", "$distributionConfig;build-config"
 )
@@ -154,7 +156,7 @@ if ($Channel -eq "Direct") {
   --clean `
   --onefile `
   --windowed `
-  --name CodexVitals `
+  --name Headroom `
   --distpath $distDir `
   --workpath $workDir `
   --specpath $windowsRoot `
@@ -169,8 +171,8 @@ if ($Channel -eq "Direct") {
 if ($LASTEXITCODE -ne 0) {
     throw "PyInstaller failed."
 }
-if (-not (Test-Path -LiteralPath (Join-Path $distDir "CodexVitals.exe"))) {
-    throw "PyInstaller did not produce CodexVitals.exe."
+if (-not (Test-Path -LiteralPath (Join-Path $distDir "Headroom.exe"))) {
+    throw "PyInstaller did not produce Headroom.exe."
 }
 
-Write-Output "Built ($channelName): $(Join-Path $distDir 'CodexVitals.exe')"
+Write-Output "Built ($channelName): $(Join-Path $distDir 'Headroom.exe')"

@@ -304,7 +304,7 @@ final class KeepAwakeTests: XCTestCase {
 
     func testAuthorizationUsesForegroundHelperAndPreservesExecutionErrors() {
         let script = KeepAwakeProcessSession.authorizationScript(
-            helper: "/Applications/Codex Vitals.app/Contents/MacOS/helper",
+            helper: "/Applications/Headroom.app/Contents/MacOS/helper",
             socketPath: "/private/tmp/test/session", uid: 501, duration: 60
         )
         XCTAssertTrue(script.contains("do shell script \"exec '"))

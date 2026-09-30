@@ -58,19 +58,19 @@ func run() throws {
     guard geteuid() == 0, args.count == 4,
           let uid = uid_t(args[2]), uid != 0,
           let duration = TimeInterval(args[3]), KeepAwakePolicy.validDuration(duration) else {
-        fputs("Codex Vitals helper: invalid arguments or missing administrator privileges.\n", stderr)
+        fputs("Headroom helper: invalid arguments or missing administrator privileges.\n", stderr)
         exit(64)
     }
     let fd = try KeepAwakeSocket.make()
     defer { close(fd) }
     try KeepAwakeSocket.connect(fd, path: args[1])
     guard KeepAwakeSocket.peerUID(fd) == uid else {
-        fputs("Codex Vitals helper: the app connection has the wrong user identity.\n", stderr)
+        fputs("Headroom helper: the app connection has the wrong user identity.\n", stderr)
         exit(65)
     }
     guard KeepAwakeSocket.readable(fd, milliseconds: 5_000),
           try KeepAwakeSocket.receive(fd) == "START" else {
-        fputs("Codex Vitals helper: the app did not confirm session startup.\n", stderr)
+        fputs("Headroom helper: the app did not confirm session startup.\n", stderr)
         exit(66)
     }
 
@@ -83,6 +83,6 @@ func run() throws {
 }
 
 do { try run() } catch {
-    fputs("Codex Vitals helper: local connection failed (\(error)).\n", stderr)
+    fputs("Headroom helper: local connection failed (\(error)).\n", stderr)
     exit(1)
 }

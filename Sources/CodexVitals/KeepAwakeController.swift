@@ -120,13 +120,13 @@ final class KeepAwakeController: ObservableObject {
         switch event {
         case "STOPPED expired": message = "Timer finished. Normal sleep is restored."
         case "STOPPED battery": message = "Stopped at 15% battery. Normal sleep is restored."
-        case "STOPPED changed": message = "Sleep was re-enabled outside Codex Vitals."
+        case "STOPPED changed": message = "Sleep was re-enabled outside Headroom."
         case "STOPPED stopped", "STOPPED closed": message = nil
         case "CANCELLED": message = "Administrator approval was cancelled. Keep awake is off."
         case "ERROR authorization": message = "macOS did not grant administrator approval. Keep awake was not started."
         case "ERROR timeout": message = "The administrator prompt timed out. Try starting again."
         case "ERROR handshake": message = "Administrator approval finished, but the helper did not connect. Keep awake was not started."
-        case "ERROR missing-helper": message = "The keep-awake helper is missing from the app. Reinstall Codex Vitals."
+        case "ERROR missing-helper": message = "The keep-awake helper is missing from the app. Reinstall Headroom."
         case "ERROR lock": message = "The keep-awake helper could not open its session lock. Keep awake was not started."
         case "ERROR launch": message = "The keep-awake helper could not launch. Keep awake was not started."
         case "ERROR busy": message = "Another keep-awake session is already controlling sleep. Turn it off first."
@@ -258,8 +258,8 @@ final class KeepAwakeProcessSession: KeepAwakeSessionTransport, @unchecked Senda
         // execution errors and let the authorization process exit before the IPC handshake.
         let command = "exec \(shellQuote(helper)) \(shellQuote(socketPath)) \(uid) \(Int(duration))"
         let purpose = duration == KeepAwakePolicy.noTimer
-            ? "Allow Codex Vitals to keep this Mac awake with its lid closed, with no auto-off timer."
-            : "Allow Codex Vitals to keep this Mac awake with its lid closed for a limited time."
+            ? "Allow Headroom to keep this Mac awake with its lid closed, with no auto-off timer."
+            : "Allow Headroom to keep this Mac awake with its lid closed for a limited time."
         return """
         with timeout of 2147483647 seconds
             do shell script \(appleScriptQuote(command)) with administrator privileges with prompt \(appleScriptQuote(purpose))

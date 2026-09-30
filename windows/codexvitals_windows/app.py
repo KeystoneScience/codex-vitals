@@ -26,7 +26,7 @@ from .app_settings import (
     is_startup_enabled,
     set_startup_enabled,
 )
-from .brand_icon import build_codex_vitals_icon
+from .brand_icon import build_codex_vitals_icon, build_header_icon
 from .codex_api import AuthBackedIdentity
 from .codex_api import fetch_snapshot
 from .codex_desktop import CodexDesktopControlError, restart_codex_desktop
@@ -37,7 +37,7 @@ from .stores import AccountStore, SnapshotStore
 from .update_manager import UpdateManager, UpdateManagerError
 
 
-APP_DISPLAY_NAME = "Codex Vitals"
+APP_DISPLAY_NAME = "Headroom"
 APP_INTERNAL_NAME = "CodexVitals"
 HOMEPAGE_URL = "https://github.com/TheMakerOfWorlds/codex-vitals"
 GITHUB_URL = "https://github.com/TheMakerOfWorlds/codex-vitals"
@@ -1132,7 +1132,7 @@ class CodexVitalsWindowsApp:
 
         self.brand = tk.Frame(self.header_left, bg=self.palette["shell"])
         self.brand.pack(side="left")
-        self.brand_icon_image = ImageTk.PhotoImage(self._create_icon_image("neutral", 28))
+        self.brand_icon_image = ImageTk.PhotoImage(build_header_icon(32))
         self.brand_icon_label = tk.Label(
             self.brand,
             image=self.brand_icon_image,
@@ -1377,7 +1377,7 @@ class CodexVitalsWindowsApp:
             value=is_startup_enabled(),
             command=self._set_launch_at_login,
             palette=self.palette,
-            tooltip="Launch Codex Vitals when you sign in",
+            tooltip="Launch Headroom when you sign in",
         )
         self.startup_toggle.pack(side="right", padx=(0, 2))
 
@@ -1479,7 +1479,7 @@ class CodexVitalsWindowsApp:
                 value=self.app_settings.automatically_check_for_updates,
                 command=self._set_automatic_updates,
                 palette=self.palette,
-                tooltip="Check for Codex Vitals updates once per day",
+                tooltip="Check for Headroom updates once per day",
             )
             self.update_toggle.pack(side="right", padx=(0, 2))
 
@@ -1946,10 +1946,6 @@ class CodexVitalsWindowsApp:
         self.refresh_button.set_tone(self.palette["success"] if self.is_refreshing_all else None)
         self.search_button.set_selected(self.search_visible)
         self.settings_button.set_selected(self.settings_visible)
-        self.brand_icon_image = ImageTk.PhotoImage(
-            self._create_icon_image(presentation.menu_bar_quota_state, 28)
-        )
-        self.brand_icon_label.configure(image=self.brand_icon_image)
         if self.settings_visible:
             self.settings_status_label.configure(text=self.settings_status_message)
         else:

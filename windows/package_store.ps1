@@ -60,7 +60,7 @@ if ($LASTEXITCODE -ne 0) {
     throw "The Store-channel executable build failed."
 }
 
-$builtExecutable = Join-Path $windowsRoot "dist\CodexVitals.exe"
+$builtExecutable = Join-Path $windowsRoot "dist\Headroom.exe"
 $buildPython = Join-Path $windowsRoot ".venv-build\Scripts\python.exe"
 if (-not (Test-Path -LiteralPath $builtExecutable)) {
     throw "Store-channel executable was not found: $builtExecutable"
@@ -72,7 +72,7 @@ if (-not (Test-Path -LiteralPath $buildPython)) {
 Remove-Item -LiteralPath $packageRoot -Recurse -Force -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force -Path $assetsRoot | Out-Null
 New-Item -ItemType Directory -Force -Path $artifactRoot | Out-Null
-Copy-Item -LiteralPath $builtExecutable -Destination (Join-Path $packageRoot "CodexVitals.exe") -Force
+Copy-Item -LiteralPath $builtExecutable -Destination (Join-Path $packageRoot "Headroom.exe") -Force
 
 & $buildPython (Join-Path $windowsRoot "tools\generate_store_assets.py") `
     --source $iconSourcePath `
@@ -91,7 +91,7 @@ $utf8WithoutBom = New-Object System.Text.UTF8Encoding($false)
 )
 
 $makeAppx = Find-MakeAppx
-$artifactName = "CodexVitals-Windows-Store-$packageVersion-x64.msix"
+$artifactName = "Headroom-Windows-Store-$packageVersion-x64.msix"
 $artifactPath = Join-Path $artifactRoot $artifactName
 Remove-Item -LiteralPath $artifactPath -Force -ErrorAction SilentlyContinue
 

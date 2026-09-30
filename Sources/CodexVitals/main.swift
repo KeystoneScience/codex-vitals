@@ -46,7 +46,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         guard let button = statusItem.button else { return }
         let img = statusBarSymbolNames.lazy.compactMap {
-            NSImage(systemSymbolName: $0, accessibilityDescription: "Codex Vitals")
+            NSImage(systemSymbolName: $0, accessibilityDescription: "Headroom")
         }.first
         img?.isTemplate = true
         button.image = img

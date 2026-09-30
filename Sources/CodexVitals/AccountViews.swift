@@ -727,11 +727,11 @@ struct AccountCompactRow: View {
     private var removalConfirmationMessage: String {
         if account.isClaudeAccount {
             if isActiveAccount {
-                return "\(account.email) will be hidden from Codex Vitals. Claude Code stays signed in."
+                return "\(account.email) will be hidden from Headroom. Claude Code stays signed in."
             }
-            return "\(account.email) will be removed from Codex Vitals. The active Claude Code account is unchanged."
+            return "\(account.email) will be removed from Headroom. The active Claude Code account is unchanged."
         }
-        return "\(account.email) will be removed from Codex Vitals. A local backup is created before its saved profile is deleted."
+        return "\(account.email) will be removed from Headroom. A local backup is created before its saved profile is deleted."
     }
 
     private var accountIdentityView: some View {

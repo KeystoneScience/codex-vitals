@@ -7,21 +7,21 @@
 	<key>CFBundleIconFile</key>
 	<string>AppIcon</string>
 	<key>CFBundleDisplayName</key>
-	<string>Codex Vitals</string>
+	<string>Headroom</string>
 	<key>CFBundleExecutable</key>
-	<string>CodexVitals</string>
+	<string>Headroom</string>
 	<key>CFBundleIdentifier</key>
 	<string>app.codexvitals.menubar</string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>Codex Vitals</string>
+	<string>Headroom</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.6.4</string>
+	<string>1.6.5</string>
 	<key>CFBundleVersion</key>
-	<string>1.6.4</string>
+	<string>1.6.5</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>13.0</string>
 	<key>LSUIElement</key>

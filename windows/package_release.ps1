@@ -9,7 +9,7 @@ $ErrorActionPreference = "Stop"
 $windowsRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $repoRoot = Split-Path -Parent $windowsRoot
 $releaseRoot = Join-Path $repoRoot "ReleaseArtifacts"
-$installerName = "CodexVitals-Windows-$Version-Setup.exe"
+$installerName = "Headroom-Windows-$Version-Setup.exe"
 $installerPath = Join-Path $releaseRoot $installerName
 $hashPath = "$installerPath.sha256"
 $appcastPath = Join-Path $releaseRoot "windows-appcast.xml"
@@ -73,12 +73,12 @@ $publicationDate = [DateTime]::UtcNow.ToString("r", [Globalization.CultureInfo]:
 <?xml version="1.0" encoding="utf-8"?>
 <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
   <channel>
-    <title>Codex Vitals Windows Updates</title>
+    <title>Headroom Windows Updates</title>
     <link>https://raw.githubusercontent.com/TheMakerOfWorlds/codex-vitals/main/updates/windows-appcast.xml</link>
-    <description>Codex Vitals updates for the direct Windows release.</description>
+    <description>Headroom updates for the direct Windows release.</description>
     <language>en</language>
     <item>
-      <title>Codex Vitals $Version</title>
+      <title>Headroom $Version</title>
       <pubDate>$publicationDate</pubDate>
       <sparkle:releaseNotesLink>$releaseNotesUrl</sparkle:releaseNotesLink>
       <enclosure
@@ -97,7 +97,7 @@ $hash = (Get-FileHash -Algorithm SHA256 $installerPath).Hash.ToLowerInvariant()
 Set-Content -LiteralPath $hashPath -Value "$hash  $installerName" -Encoding ASCII
 
 @"
-# Codex Vitals for Windows $Version
+# Headroom for Windows $Version
 
 Initial public Windows release.
 

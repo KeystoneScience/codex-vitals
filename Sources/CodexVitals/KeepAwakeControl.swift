@@ -81,7 +81,7 @@ struct KeepAwakeOptions: View {
                     }
                 }
                 if selectedMinutes == 0 {
-                    Text("No timer. Stays on until you turn it off or Codex Vitals closes.")
+                    Text("No timer. Stays on until you turn it off or Headroom closes.")
                         .font(.system(size: 11)).foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 } else {
@@ -115,7 +115,7 @@ struct KeepAwakeOptions: View {
                     .disabled(controller.phase == .stopping)
             } else {
                 Text(controller.isConfirmedOn
-                     ? "Sleep is already disabled outside this Codex Vitals session. Manage it in the app that enabled it."
+                     ? "Sleep is already disabled outside this Headroom session. Manage it in the app that enabled it."
                      : "Unable to read the Mac’s sleep setting.")
                     .font(.system(size: 12)).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -125,7 +125,7 @@ struct KeepAwakeOptions: View {
             if let message = controller.message {
                 Text(message).font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
-            Text("Also stops when Codex Vitals closes or the battery reaches 15%. Keep your Mac on a ventilated surface.")
+            Text("Also stops when Headroom closes or the battery reaches 15%. Keep your Mac on a ventilated surface.")
                 .font(.system(size: 11)).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }

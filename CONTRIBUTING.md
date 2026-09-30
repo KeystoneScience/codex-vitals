@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for helping improve Codex Vitals.
+Thanks for helping improve Headroom.
 
 Before opening a pull request:
 

@@ -9,7 +9,7 @@ swift test
 .build/debug/CodexVitals --render-sanitized-screenshot
 .build/debug/CodexVitals --render-sanitized-screenshot --dark
 PERSONAL_BUILD=1 ./build-app.sh
-codesign --verify --deep --strict dist/CodexVitals.app
+codesign --verify --deep --strict dist/Headroom.app
 ```
 
 `PERSONAL_BUILD=1` only adds a Personal label. It does not disable this repository's updater. `UNIVERSAL=1` builds both Apple Silicon and Intel. `VERSION=1.6.4.0` overrides the bundle version for a local bootstrap build.
@@ -30,7 +30,7 @@ For a manual archive:
 
 ```bash
 VERSION=1.6.4.0 UNIVERSAL=1 ./build-app.sh
-ditto -c -k --sequesterRsrc --keepParent dist/CodexVitals.app dist/CodexVitals-1.6.4.0.zip
+ditto -c -k --sequesterRsrc --keepParent dist/Headroom.app dist/Headroom-1.6.4.0.zip
 scripts/prepare-sparkle-update.sh 1.6.4.0
 ```
 
@@ -40,7 +40,7 @@ Automatic checks and installation are enabled once when migrating from the old f
 
 ## Interface and behavior
 
-- Plain Codex Vitals title without the header app icon, studio attribution, promotional section, or GitHub-star interruption.
+- Headroom title with the selected monochrome quota icon in the header only. The system menu-bar and application icons remain unchanged.
 - Borderless rows, controls, badges, lists, and Settings cards.
 - Email first, one plan badge, and meaningful aliases/workspace names below.
 - Persistent Switch button with a larger target. Authenticated exhausted accounts remain switchable.
@@ -70,6 +70,14 @@ Screenshots contain sample accounts. Private local paths, installation logs, and
 
 ## Project credits
 
-App credits, bundled CREDITS.txt, package metadata, and project pages identify Keystone Science, Nathan Stone, and Jackson Stone. The header remains plain Codex Vitals. The existing signed update feed, credential-storage identifiers, package identities, and inherited open-source license notices remain stable.
+App credits, bundled CREDITS.txt, package metadata, and project pages identify Keystone Science, Nathan Stone, and Jackson Stone. The header pairs the selected quota icon with the Headroom name. The existing signed update feed, credential-storage identifiers, package identities, and inherited open-source license notices remain stable.
 
 Light and dark credit renders are available in `docs/credits.png` and `docs/credits-dark.png`. Existing account storage and active sign-ins are retained across app updates.
+
+## Headroom rename
+
+Headroom keeps the existing bundle identifier, account storage directories, Keychain services, Windows Store identity, and signed update feeds so existing accounts and updates remain compatible. The internal Swift targets and Python module names also remain stable. Public UI labels and newly built app bundles, executables, archives, and installers use Headroom. Historical release notes and upstream copyright notices keep their original names.
+
+`Support/HeadroomHeader.png` and `windows/build-assets/HeadroomHeader.png` are identical copies of the selected white quota icon. Only the header loads this asset. The macOS template rendering adapts its foreground to light and dark appearances.
+
+The rename passed 140 Swift tests and 43 Windows unit tests (including startup-shortcut migration). Light and dark SwiftUI header renders were reviewed. The `Headroom.app` release build passed strict code-signing verification, and `Headroom-1.6.5.pkg` built successfully. The installed Mac app was verified by executable and asset hashes, with five saved accounts preserved and refreshed without errors; active Codex authentication was unchanged. Native UI inspection timed out, so visual checks used the app's SwiftUI renderer. Windows installer execution was not tested on macOS.

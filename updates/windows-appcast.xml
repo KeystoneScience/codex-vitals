@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
   <channel>
-    <title>Codex Vitals Windows Updates</title>
+    <title>Headroom Windows Updates</title>
     <link>https://github.com/TheMakerOfWorlds/codex-vitals</link>
     <description>Updates will appear here when a Windows release is published from this repository.</description>
     <language>en</language>

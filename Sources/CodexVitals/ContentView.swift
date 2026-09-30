@@ -252,10 +252,13 @@ struct HeaderView: View {
     }
 
     private var appBrandLockup: some View {
-        Text("Codex Vitals")
-            .font(.system(size: 17, weight: .semibold))
-            .foregroundStyle(.primary)
-            .fixedSize()
+        HStack(spacing: 8) {
+            HeadroomHeaderIcon()
+            Text(AppInfo.name)
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundStyle(.primary)
+                .fixedSize()
+        }
     }
 
     private var compactSearchField: some View {
@@ -307,6 +310,32 @@ struct HeaderView: View {
             guard !Task.isCancelled else { return }
             showsRefreshSuccess = false
         }
+    }
+}
+
+/// The selected white quota glyph is used only beside the header title.
+private struct HeadroomHeaderIcon: View {
+    private static let image: NSImage = {
+        let repositoryAsset = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Support/HeadroomHeader.png")
+        let image = [
+            Bundle.main.url(forResource: "HeadroomHeader", withExtension: "png"),
+            repositoryAsset
+        ].compactMap { $0.flatMap { NSImage(contentsOf: $0) } }.first
+            ?? NSImage(systemSymbolName: "chart.bar.xaxis", accessibilityDescription: nil)!
+        image.isTemplate = true
+        return image
+    }()
+
+    var body: some View {
+        Image(nsImage: Self.image)
+            .resizable()
+            .renderingMode(.template)
+            .scaledToFit()
+            .foregroundStyle(.primary)
+            .frame(width: 32, height: 32)
+            .accessibilityHidden(true)
     }
 }
 

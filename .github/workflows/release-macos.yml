@@ -47,7 +47,7 @@ jobs:
           SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
         run: |
           test -n "$SPARKLE_PRIVATE_KEY"
-          ditto -c -k --sequesterRsrc --keepParent dist/CodexVitals.app "dist/CodexVitals-${VERSION}.zip"
+          ditto -c -k --sequesterRsrc --keepParent dist/Headroom.app "dist/Headroom-${VERSION}.zip"
           scripts/prepare-sparkle-update.sh "$VERSION"
 
       - name: Publish release before updating feed
@@ -61,8 +61,8 @@ jobs:
             gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern appcast.xml --dir dist/published-feed
             cp dist/published-feed/appcast.xml dist/sparkle-appcast/appcast.xml
           else
-            gh release create "$TAG" "dist/CodexVitals-${VERSION}.zip" dist/sparkle-appcast/appcast.xml \
-              --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "Codex Vitals ${VERSION}" --generate-notes
+            gh release create "$TAG" "dist/Headroom-${VERSION}.zip" dist/sparkle-appcast/appcast.xml \
+              --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "Headroom ${VERSION}" --generate-notes
           fi
 
       - name: Publish repository update feed

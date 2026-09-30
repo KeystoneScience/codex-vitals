@@ -210,7 +210,7 @@ struct SettingsView: View {
             }
             .buttonStyle(.plain)
             .disabled(!appUpdater.canCheckForUpdates)
-            .help("Check for a new Codex Vitals version")
+            .help("Check for a new Headroom version")
         }
     }
 
@@ -233,7 +233,7 @@ struct SettingsView: View {
                 NSApp.terminate(nil)
             } label: {
                 HStack(spacing: 10) {
-                    Label("Quit Codex Vitals", systemImage: "power")
+                    Label("Quit Headroom", systemImage: "power")
                         .font(Theme.settingsLabelFont)
                         .foregroundStyle(Theme.dangerText)
                     Spacer(minLength: 0)
@@ -243,7 +243,7 @@ struct SettingsView: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .help("Quit Codex Vitals")
+            .help("Quit Headroom")
         }
         .background(Theme.settingsGroupSurface)
         .clipShape(RoundedRectangle(cornerRadius: Theme.settingsCardCornerRadius, style: .continuous))

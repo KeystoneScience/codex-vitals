@@ -2,10 +2,10 @@
   #define MyAppVersion "1.0.0"
 #endif
 
-#define MyAppName "Codex Vitals"
+#define MyAppName "Headroom"
 #define MyAppPublisher "Keystone Science"
 #define MyAppURL "https://github.com/TheMakerOfWorlds/codex-vitals"
-#define MyAppExeName "CodexVitals.exe"
+#define MyAppExeName "Headroom.exe"
 
 [Setup]
 AppId={{0F53868A-BD3F-4997-8F3E-8572497E3E49}
@@ -23,7 +23,7 @@ PrivilegesRequired=lowest
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 OutputDir=..\ReleaseArtifacts
-OutputBaseFilename=CodexVitals-Windows-{#MyAppVersion}-Setup
+OutputBaseFilename=Headroom-Windows-{#MyAppVersion}-Setup
 SetupIconFile=build-assets\CodexVitals.ico
 UninstallDisplayIcon={app}\{#MyAppExeName}
 Compression=lzma2/max
@@ -31,7 +31,7 @@ SolidCompression=yes
 WizardStyle=modern
 CloseApplications=yes
 RestartApplications=yes
-CloseApplicationsFilter={#MyAppExeName}
+CloseApplicationsFilter={#MyAppExeName},CodexVitals.exe
 VersionInfoVersion={#MyAppVersion}.0
 VersionInfoCompany={#MyAppPublisher}
 VersionInfoDescription={#MyAppName} Setup
@@ -50,6 +50,12 @@ Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription:
 Source: "dist\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
 Source: "third-party\WinSparkle-LICENSE.txt"; DestDir: "{app}\licenses"; Flags: ignoreversion
 
+[InstallDelete]
+Type: files; Name: "{app}\CodexVitals.exe"
+Type: files; Name: "{autoprograms}\Codex Vitals.lnk"
+Type: files; Name: "{autostartup}\Codex Vitals.lnk"
+Type: files; Name: "{autodesktop}\Codex Vitals.lnk"
+
 [Icons]
 Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
 Name: "{autostartup}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Parameters: "--hidden"; Tasks: startup
@@ -63,6 +69,14 @@ function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
   ResultCode: Integer;
 begin
+  Exec(
+    ExpandConstant('{sys}\taskkill.exe'),
+    '/F /T /IM CodexVitals.exe',
+    '',
+    SW_HIDE,
+    ewWaitUntilTerminated,
+    ResultCode
+  );
   Exec(
     ExpandConstant('{sys}\taskkill.exe'),
     '/F /T /IM {#MyAppExeName}',

@@ -9,6 +9,7 @@ from PIL import Image, ImageDraw, ImageFilter
 
 
 ICON_ASSET_NAME = "CodexVitals-1024.png"
+HEADER_ICON_ASSET_NAME = "HeadroomHeader.png"
 RAMTER_STUDIO_LOGO_ASSET_NAME = "RamterStudioLogo.png"
 
 
@@ -37,6 +38,13 @@ def build_codex_vitals_icon(size: int) -> Image.Image:
     if size <= 0:
         raise ValueError("Icon size must be positive.")
     return _cached_codex_vitals_icon(size).copy()
+
+
+@lru_cache(maxsize=4)
+def build_header_icon(size: int) -> Image.Image:
+    """The selected white quota glyph, kept separate from the tray and app icons."""
+    with Image.open(_bundled_asset_path(HEADER_ICON_ASSET_NAME)) as source:
+        return source.convert("RGBA").resize((size, size), Image.Resampling.LANCZOS)
 
 
 @lru_cache(maxsize=12)

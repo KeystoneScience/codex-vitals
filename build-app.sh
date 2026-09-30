@@ -13,7 +13,7 @@
 #
 # Usage:
 #   ./build-app.sh
-#   DISPLAY_NAME="Codex Vitals" PRODUCT_NAME="CodexVitals" ./build-app.sh
+#   DISPLAY_NAME="Headroom" PRODUCT_NAME="Headroom" ./build-app.sh
 #
 # Signing note: local builds default to ad-hoc signing. Public distribution
 # builds should pass a Developer ID Application identity and be notarized.
@@ -22,8 +22,8 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 cd "$ROOT"
 
-PRODUCT_NAME="${PRODUCT_NAME:-CodexVitals}"
-DISPLAY_NAME="${DISPLAY_NAME:-Codex Vitals}"
+PRODUCT_NAME="${PRODUCT_NAME:-Headroom}"
+DISPLAY_NAME="${DISPLAY_NAME:-Headroom}"
 BUNDLE_ID="${BUNDLE_ID:-app.codexvitals.menubar}"
 DEFAULT_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "${ROOT}/Support/Info.plist")"
 VERSION="${VERSION:-$DEFAULT_VERSION}"
@@ -58,13 +58,14 @@ fi
 OUT="${ROOT}/dist/${PRODUCT_NAME}.app"
 rm -rf "$OUT"
 mkdir -p "${OUT}/Contents/MacOS" "${OUT}/Contents/Resources" "${OUT}/Contents/Frameworks"
-cp "$EXE" "${OUT}/Contents/MacOS/CodexVitals"
+cp "$EXE" "${OUT}/Contents/MacOS/Headroom"
 cp "${BIN_DIR}/CodexVitalsKeepAwake" "${OUT}/Contents/MacOS/CodexVitalsKeepAwake"
 chmod +x "${OUT}/Contents/MacOS/CodexVitalsKeepAwake"
-chmod +x "${OUT}/Contents/MacOS/CodexVitals"
+chmod +x "${OUT}/Contents/MacOS/Headroom"
 ditto "$SPARKLE_FRAMEWORK" "${OUT}/Contents/Frameworks/Sparkle.framework"
 cp "${ROOT}/Support/Info.plist" "${OUT}/Contents/Info.plist"
 cp "$ICNS" "${OUT}/Contents/Resources/AppIcon.icns"
+cp "${ROOT}/Support/HeadroomHeader.png" "${OUT}/Contents/Resources/HeadroomHeader.png"
 cp "${ROOT}/Support/codex.png" "${OUT}/Contents/Resources/codex.png"
 cp "${ROOT}/Support/ClaudeSpark.png" "${OUT}/Contents/Resources/ClaudeSpark.png"
 cp "${ROOT}/CREDITS.txt" "${OUT}/Contents/Resources/CREDITS.txt"

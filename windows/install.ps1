@@ -11,9 +11,9 @@ $legacyEntryName = "$($legacyProductName)Windows.pyw"
 $codexVitalsEntryPattern = [regex]::Escape("CodexVitalsWindows.pyw")
 $legacyEntryPattern = [regex]::Escape($legacyEntryName)
 
-function Stop-CodexVitalsInstances {
+function Stop-HeadroomInstances {
     $processes = Get-CimInstance Win32_Process | Where-Object {
-        $_.Name -in @("CodexVitals.exe", $legacyExecutableName) -or (
+        $_.Name -in @("Headroom.exe", "CodexVitals.exe", $legacyExecutableName) -or (
             $_.Name -match "^pythonw?\.exe$" -and
             ($_.CommandLine -match $codexVitalsEntryPattern -or
              $_.CommandLine -match $legacyEntryPattern)
@@ -27,7 +27,7 @@ function Stop-CodexVitalsInstances {
 
 $windowsRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 if ([string]::IsNullOrWhiteSpace($SourceExe)) {
-    $SourceExe = Join-Path $windowsRoot "dist\CodexVitals.exe"
+    $SourceExe = Join-Path $windowsRoot "dist\Headroom.exe"
 }
 
 if (-not (Test-Path -LiteralPath $SourceExe)) {
@@ -35,16 +35,16 @@ if (-not (Test-Path -LiteralPath $SourceExe)) {
 }
 
 $installDir = Join-Path $env:LOCALAPPDATA "Programs\CodexVitals"
-$installedExe = Join-Path $installDir "CodexVitals.exe"
+$installedExe = Join-Path $installDir "Headroom.exe"
 $legacyInstallDir = Join-Path $env:LOCALAPPDATA "Programs\$legacyProductName"
 $legacyExe = Join-Path $legacyInstallDir $legacyExecutableName
 $startupDir = [Environment]::GetFolderPath("Startup")
-$startupShortcut = Join-Path $startupDir "Codex Vitals.lnk"
+$startupShortcut = Join-Path $startupDir "Headroom.lnk"
 $legacyStartupShortcut = Join-Path $startupDir "$legacyProductName.lnk"
 $programsDir = [Environment]::GetFolderPath("Programs")
-$programShortcut = Join-Path $programsDir "Codex Vitals.lnk"
+$programShortcut = Join-Path $programsDir "Headroom.lnk"
 
-Stop-CodexVitalsInstances
+Stop-HeadroomInstances
 Start-Sleep -Milliseconds 500
 
 New-Item -ItemType Directory -Path $installDir -Force | Out-Null
@@ -57,7 +57,7 @@ if ($EnableStartup) {
     $shortcut.Arguments = "--hidden"
     $shortcut.WorkingDirectory = $installDir
     $shortcut.IconLocation = $installedExe
-    $shortcut.Description = "Launch Codex Vitals at sign-in"
+    $shortcut.Description = "Launch Headroom at sign-in"
     $shortcut.Save()
 } elseif (Test-Path -LiteralPath $startupShortcut) {
     Remove-Item -LiteralPath $startupShortcut -Force
@@ -72,8 +72,17 @@ $shortcut = $shell.CreateShortcut($programShortcut)
 $shortcut.TargetPath = $installedExe
 $shortcut.WorkingDirectory = $installDir
 $shortcut.IconLocation = $installedExe
-$shortcut.Description = "Open Codex Vitals"
+$shortcut.Description = "Open Headroom"
 $shortcut.Save()
+
+# Remove previous display-name shortcuts after the new shortcut has been saved.
+foreach ($oldShortcut in @(
+    (Join-Path $startupDir "Codex Vitals.lnk"),
+    (Join-Path $programsDir "Codex Vitals.lnk")
+)) {
+    Remove-Item -LiteralPath $oldShortcut -Force -ErrorAction SilentlyContinue
+}
+Remove-Item -LiteralPath (Join-Path $installDir "CodexVitals.exe") -Force -ErrorAction SilentlyContinue
 
 if (Test-Path -LiteralPath $legacyExe) {
     Remove-Item -LiteralPath $legacyExe -Force

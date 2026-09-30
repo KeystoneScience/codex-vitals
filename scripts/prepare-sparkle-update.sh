@@ -2,7 +2,7 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 VERSION="${1:?Usage: prepare-sparkle-update.sh version [archive]}"
-ARCHIVE="${2:-${ROOT}/dist/CodexVitals-${VERSION}.zip}"
+ARCHIVE="${2:-${ROOT}/dist/Headroom-${VERSION}.zip}"
 GENERATOR="${ROOT}/.build/artifacts/sparkle/Sparkle/bin/generate_appcast"
 STAGING="${ROOT}/dist/sparkle-appcast"
 REPOSITORY="https://github.com/TheMakerOfWorlds/codex-vitals"
