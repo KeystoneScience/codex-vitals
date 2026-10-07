@@ -120,6 +120,7 @@ struct SettingsView: View {
                     .controlSize(.small)
                     .frame(width: 96)
                 }
+                .help("Saved accounts are also checked daily, including when Auto Refresh is Off.")
             }
 
             settingsDivider

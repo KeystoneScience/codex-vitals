@@ -9,7 +9,8 @@ protocol ClaudeUsageProviding: Sendable {
     func fetchUsage(
         credential: String,
         expectedAccountUUID: String?,
-        refreshIfNeeded: Bool
+        refreshIfNeeded: Bool,
+        persistRefreshedCredential: @Sendable (String) async throws -> Void
     ) async throws -> ClaudeUsageResult
 }
 
@@ -27,11 +28,14 @@ final class ClaudeUsageClient: ClaudeUsageProviding, @unchecked Sendable {
     func fetchUsage(
         credential rawCredential: String,
         expectedAccountUUID: String?,
-        refreshIfNeeded: Bool
+        refreshIfNeeded: Bool,
+        persistRefreshedCredential: @Sendable (String) async throws -> Void
     ) async throws -> ClaudeUsageResult {
         var credential = try ClaudeCredentialEnvelope(rawValue: rawCredential)
-        if refreshIfNeeded && credential.isExpiring {
+        if refreshIfNeeded && credential.needsRefresh() {
             credential = try await refresh(credential, expectedAccountUUID: expectedAccountUUID)
+            // A usage failure must not discard a successfully rotated refresh token.
+            try await persistRefreshedCredential(credential.rawValue)
         }
 
         var request = URLRequest(url: Self.usageURL, timeoutInterval: 15)

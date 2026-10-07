@@ -165,6 +165,17 @@ struct ClaudeCredentialEnvelope: Equatable, @unchecked Sendable {
         return Date().timeIntervalSince1970 * 1000 + 5 * 60 * 1000 >= expiresAtMilliseconds
     }
 
+    func needsRefresh(at now: Date = Date()) -> Bool {
+        if let expiresAtMilliseconds,
+           expiresAtMilliseconds <= now.addingTimeInterval(5 * 60).timeIntervalSince1970 * 1000 {
+            return true
+        }
+        guard let lastRefresh = (root["headroomLastRefreshAt"] as? NSNumber)?.doubleValue else {
+            return true
+        }
+        return lastRefresh <= now.addingTimeInterval(-24 * 60 * 60).timeIntervalSince1970
+    }
+
     func replacingOAuth(with response: ClaudeTokenResponse) throws -> String {
         var updatedRoot = root
         var updatedOAuth = oauth
@@ -178,6 +189,7 @@ struct ClaudeCredentialEnvelope: Equatable, @unchecked Sendable {
             updatedOAuth["scopes"] = scope.split(separator: " ").map(String.init)
         }
         updatedRoot["claudeAiOauth"] = updatedOAuth
+        updatedRoot["headroomLastRefreshAt"] = Date().timeIntervalSince1970
         let data = try JSONSerialization.data(withJSONObject: updatedRoot, options: [.sortedKeys])
         guard let value = String(data: data, encoding: .utf8) else {
             throw ClaudeNativeError.invalidCredentials
@@ -312,6 +324,8 @@ enum ClaudeNativeError: LocalizedError, Equatable, Sendable {
     case loginFailed(Int)
     case loginCanceled
     case loginTimedOut
+    case browserOpenFailed
+    case browserLoginUnavailable
     case wrongAccount(expected: String, actual: String)
     case refreshRejected
     case rateLimited(retryAfter: TimeInterval?)
@@ -343,6 +357,10 @@ enum ClaudeNativeError: LocalizedError, Equatable, Sendable {
             return "Claude login canceled."
         case .loginTimedOut:
             return "Claude login timed out."
+        case .browserOpenFailed:
+            return "Could not open the Claude sign-in page in your browser."
+        case .browserLoginUnavailable:
+            return "Claude did not start browser sign-in. Update Claude Code and try again."
         case let .wrongAccount(expected, actual):
             return "Expected \(expected), but Claude signed in as \(actual). The signed-in account was added separately."
         case .refreshRejected:

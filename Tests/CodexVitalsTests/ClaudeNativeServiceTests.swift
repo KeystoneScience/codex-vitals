@@ -649,7 +649,8 @@ private struct UnusedClaudeUsageProvider: ClaudeUsageProviding {
     func fetchUsage(
         credential: String,
         expectedAccountUUID: String?,
-        refreshIfNeeded: Bool
+        refreshIfNeeded: Bool,
+        persistRefreshedCredential: @Sendable (String) async throws -> Void
     ) async throws -> ClaudeUsageResult {
         throw TestFailure.expected
     }
@@ -666,11 +667,16 @@ private actor SequenceClaudeUsageProvider: ClaudeUsageProviding {
     func fetchUsage(
         credential: String,
         expectedAccountUUID: String?,
-        refreshIfNeeded: Bool
+        refreshIfNeeded: Bool,
+        persistRefreshedCredential: @Sendable (String) async throws -> Void
     ) async throws -> ClaudeUsageResult {
         callCount += 1
         guard !results.isEmpty else { throw TestFailure.expected }
-        return try results.removeFirst().get()
+        let result = try results.removeFirst().get()
+        if result.credential != credential {
+            try await persistRefreshedCredential(result.credential)
+        }
+        return result
     }
 
     func numberOfCalls() -> Int {

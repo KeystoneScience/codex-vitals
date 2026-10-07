@@ -282,11 +282,11 @@ actor ClaudeAccountService {
             let result = try await usageClient.fetchUsage(
                 credential: credential,
                 expectedAccountUUID: profile.accountUUID,
-                refreshIfNeeded: !isActive
+                refreshIfNeeded: !isActive,
+                persistRefreshedCredential: { [self] updated in
+                    try await writeProfileCredential(updated, profileID: profile.id)
+                }
             )
-            if result.credential != credential {
-                try writeProfileCredential(result.credential, profileID: profile.id)
-            }
             let windows = usageWindows(result.response, now: now)
             let fableWindow = fableQuotaWindow(result.response, now: now)
             if !windows.isEmpty {
@@ -653,11 +653,16 @@ actor ClaudeAccountService {
         )
         let outputHandle = try FileHandle(forWritingTo: outputURL)
         defer { try? outputHandle.close() }
+        let browserCapture = try ClaudeLoginBrowser.prepareCapture(in: temporaryDirectory)
 
         let process = Process()
         process.executableURL = command.executableURL
         process.arguments = command.arguments
-        process.environment = command.environment
+        var environment = command.environment
+        // Headroom owns opening the browser. The CLI still serves its OAuth callback.
+        environment["BROWSER"] = browserCapture.executableURL.path
+        environment["HEADROOM_CLAUDE_AUTH_URL_FILE"] = browserCapture.outputURL.path
+        process.environment = environment
         process.currentDirectoryURL = temporaryDirectory
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = outputHandle
@@ -667,9 +672,24 @@ actor ClaudeAccountService {
         defer { loginProcess = nil }
 
         let deadline = Date().addingTimeInterval(10 * 60)
+        let browserDeadline = Date().addingTimeInterval(20)
+        var openedBrowser = false
         do {
             while process.isRunning {
                 try Task.checkCancellation()
+                if !openedBrowser,
+                   let output = try? String(contentsOf: browserCapture.outputURL, encoding: .utf8),
+                   let url = ClaudeLoginBrowser.authorizationURL(in: output) {
+                    guard await ClaudeLoginBrowser.open(url) else {
+                        terminate(process)
+                        throw ClaudeNativeError.browserOpenFailed
+                    }
+                    openedBrowser = true
+                }
+                if !openedBrowser && Date() >= browserDeadline {
+                    terminate(process)
+                    throw ClaudeNativeError.browserLoginUnavailable
+                }
                 guard Date() < deadline else {
                     terminate(process)
                     throw ClaudeNativeError.loginTimedOut
@@ -681,6 +701,9 @@ actor ClaudeAccountService {
             throw CancellationError()
         }
         process.waitUntilExit()
+        if !openedBrowser {
+            throw ClaudeNativeError.browserLoginUnavailable
+        }
         guard process.terminationStatus == 0 else {
             throw ClaudeNativeError.loginFailed(Int(process.terminationStatus))
         }

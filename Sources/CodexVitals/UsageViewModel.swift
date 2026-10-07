@@ -59,6 +59,8 @@ final class UsageViewModel: ObservableObject {
     private let removalService = LocalAccountRemovalService()
     private let resetNotificationService: any UsageResetNotifying
     private var refreshTimer: Timer?
+    private var credentialMaintenanceTimer: Timer?
+    private var wakeObserver: NSObjectProtocol?
     private var reloginTask: Task<Void, Never>?
     private var switchTask: Task<Void, Never>?
     private var pendingDebouncedRefreshTask: Task<Void, Never>?
@@ -84,6 +86,7 @@ final class UsageViewModel: ObservableObject {
         }
         codexLoginStatus = CodexLoginStatusStore.load()
         refreshCodexAvailability()
+        startCredentialMaintenance()
     }
 
     // MARK: - Derived Lists
@@ -327,6 +330,9 @@ final class UsageViewModel: ObservableObject {
             accounts = loadedAccounts
             lastRefresh = now
             AccountSnapshotStore.save(accounts: accounts, lastRefresh: now)
+            if !loadedAccounts.contains(where: \.hasError) {
+                UserDefaults.standard.set(now.timeIntervalSince1970, forKey: AccountTokenMaintenance.lastSuccessfulCheckKey)
+            }
             codexLoginStatus = CodexLoginStatusStore.load()
             refreshCodexAvailability()
             isLoading = false
@@ -966,6 +972,27 @@ final class UsageViewModel: ObservableObject {
     func toggleGroupByWorkspace() { groupByWorkspace.toggle() }
 
     // MARK: - Timer
+
+    private func startCredentialMaintenance() {
+        let timer = Timer(timeInterval: AccountTokenMaintenance.checkInterval, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.checkDailyCredentials() }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        credentialMaintenanceTimer = timer
+        wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didWakeNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in self?.checkDailyCredentials() }
+        }
+    }
+
+    private func checkDailyCredentials() {
+        guard !isLoading, !hasPendingAccountAction else { return }
+        let epoch = UserDefaults.standard.object(forKey: AccountTokenMaintenance.lastSuccessfulCheckKey) as? Double
+        let lastCheck = epoch.map(Date.init(timeIntervalSince1970:))
+        guard AccountTokenMaintenance.isDue(lastSuccessfulCheck: lastCheck) else { return }
+        refresh()
+    }
 
     private func refreshCodexAvailability() {
         isCodexInstalled = switchService.isCodexInstalled

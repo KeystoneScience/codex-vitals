@@ -26,7 +26,7 @@ final class CodexTokenRefreshServiceTests: XCTestCase {
         XCTAssertFalse(CodexTokenRefreshService.shouldRefresh(outsideWindow, at: now))
     }
 
-    func testEightDayFallbackAppliesWhenTokenExpiryIsUnavailable() throws {
+    func testDailyFallbackAppliesWhenTokenExpiryIsUnavailable() throws {
         let now = Date(timeIntervalSince1970: 2_000_000_000)
         var root = authRoot(now: now, accessExpiresAt: now.timeIntervalSince1970)
         var tokens = try XCTUnwrap(root["tokens"] as? [String: Any])
@@ -38,11 +38,20 @@ final class CodexTokenRefreshServiceTests: XCTestCase {
         tokens["access_token"] = jwt([:])
         root["tokens"] = tokens
         root["last_refresh"] = ISO8601DateFormatter.codexVitals.string(
-            from: now.addingTimeInterval(-8 * 24 * 60 * 60)
+            from: now.addingTimeInterval(-24 * 60 * 60)
         )
         let auth = try XCTUnwrap(StoredCodexAuth.parse(root: root))
 
         XCTAssertTrue(CodexTokenRefreshService.shouldRefresh(auth, at: now))
+    }
+
+    func testDailyRenewalRefreshesTokensEvenWithLongRemainingLifetime() throws {
+        let now = Date(timeIntervalSince1970: 2_000_000_000)
+        var root = authRoot(now: now, accessExpiresAt: now.addingTimeInterval(7 * 24 * 60 * 60).timeIntervalSince1970)
+        root["last_refresh"] = ISO8601DateFormatter.codexVitals.string(from: now.addingTimeInterval(-24 * 60 * 60))
+        XCTAssertTrue(CodexTokenRefreshService.shouldRefresh(try XCTUnwrap(StoredCodexAuth.parse(root: root)), at: now))
+        root["last_refresh"] = ISO8601DateFormatter.codexVitals.string(from: now.addingTimeInterval(-23 * 60 * 60))
+        XCTAssertFalse(CodexTokenRefreshService.shouldRefresh(try XCTUnwrap(StoredCodexAuth.parse(root: root)), at: now))
     }
 
     func testCanonicalAuthHydratesStaleAccountsCache() throws {
@@ -258,7 +267,7 @@ final class CodexTokenRefreshServiceTests: XCTestCase {
         ])
         return [
             "auth_mode": "chatgpt",
-            "last_refresh": ISO8601DateFormatter.codexVitals.string(from: now.addingTimeInterval(-9 * 24 * 60 * 60)),
+            "last_refresh": ISO8601DateFormatter.codexVitals.string(from: now),
             "tokens": [
                 "id_token": idToken,
                 "access_token": accessToken ?? jwt(["exp": accessExpiresAt]),
