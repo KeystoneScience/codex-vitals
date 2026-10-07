@@ -194,9 +194,17 @@ final class UsageViewModel: ObservableObject {
 
     var nonFreeExhaustedAccounts: [Account] {
         if usesManualAccountOrder {
-            return sortByManualOrder(searchFiltered.filter { !$0.isUsableForCodex && !$0.isFreeWaitingForReset })
+            return sortByManualOrder(searchFiltered.filter { $0.isWaitingForReset && !$0.isFreeWaitingForReset })
         }
-        return Self.sortedExhaustedAccounts(searchFiltered.filter { !$0.isUsableForCodex && !$0.isFreeWaitingForReset })
+        return Self.sortedExhaustedAccounts(searchFiltered.filter { $0.isWaitingForReset && !$0.isFreeWaitingForReset })
+    }
+
+    var waitingForResetAccounts: [Account] {
+        exhaustedAccounts.filter(\.isWaitingForReset)
+    }
+
+    var attentionAccounts: [Account] {
+        exhaustedAccounts.filter { !$0.isWaitingForReset }
     }
 
     var freeWaitingAccounts: [Account] {
@@ -216,6 +224,10 @@ final class UsageViewModel: ObservableObject {
 
     var groupedExhaustedAccounts: [(String, [Account])] {
         Self.groupByWorkspace(nonFreeExhaustedAccounts)
+    }
+
+    var groupedAttentionAccounts: [(String, [Account])] {
+        Self.groupByWorkspace(attentionAccounts)
     }
 
     var hasAnyAccount: Bool {
@@ -828,6 +840,7 @@ final class UsageViewModel: ObservableObject {
 
     private func reorderSection(for account: Account) -> Int {
         if account.isFreeWaitingForReset { return 2 }
+        if !account.isUsableForCodex && !account.isWaitingForReset { return 3 }
         if !account.isUsableForCodex { return 1 }
         return 0
     }
@@ -843,8 +856,9 @@ final class UsageViewModel: ObservableObject {
                 + groupedNormalActiveAccounts.flatMap { $0.1 }
                 + groupedExhaustedAccounts.flatMap { $0.1 }
                 + freeWaitingAccounts
+                + attentionAccounts
         } else {
-            rows = priorityAccounts + normalActiveAccounts + nonFreeExhaustedAccounts + freeWaitingAccounts
+            rows = priorityAccounts + normalActiveAccounts + nonFreeExhaustedAccounts + freeWaitingAccounts + attentionAccounts
         }
         return rows.filter { $0.accountProvider == provider }
     }

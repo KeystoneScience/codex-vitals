@@ -175,6 +175,12 @@ final class CodexCanonicalCredentialStore: @unchecked Sendable {
         return liveAuth
     }
 
+    fileprivate func awsSourceMetadata(for credential: CodexCanonicalCredential) -> [String: Any]? {
+        guard let source = AppStorage.readJSON(credential.record.metaURL)?["credential_source"] as? [String: Any],
+              source["kind"] as? String == "aws_secrets_manager" else { return nil }
+        return source
+    }
+
     fileprivate func failureState(for credential: CodexCanonicalCredential) -> CodexRefreshFailureState? {
         guard let meta = AppStorage.readJSON(credential.record.metaURL),
               let refresh = meta["token_refresh"] as? [String: Any],
@@ -226,7 +232,8 @@ final class CodexCanonicalCredentialStore: @unchecked Sendable {
 
     fileprivate func persist(
         root: [String: Any],
-        expected credential: CodexCanonicalCredential
+        expected credential: CodexCanonicalCredential,
+        awsSyncedAt: Date? = nil
     ) throws -> CodexCanonicalCredential {
         try CodexAuthFileLock.withLock {
             guard let current = self.credential(
@@ -251,6 +258,12 @@ final class CodexCanonicalCredentialStore: @unchecked Sendable {
             }
 
             repairDerivedFilesBestEffort(using: updated)
+            if let awsSyncedAt, var meta = AppStorage.readJSON(updated.record.metaURL),
+               var source = meta["credential_source"] as? [String: Any] {
+                source["last_synced_at"] = ISO8601DateFormatter.codexVitals.string(from: awsSyncedAt)
+                meta["credential_source"] = source
+                try AppStorage.writeJSON(meta, to: updated.record.metaURL, permissions: 0o600)
+            }
             return updated
         }
     }
@@ -352,6 +365,7 @@ final class CodexTokenRefreshService: @unchecked Sendable {
     ]
 
     private let transport: CodexTokenRefreshTransport
+    private let awsCredentials: any AWSSecretCredentialProviding
     private let credentialStore: CodexCanonicalCredentialStore
     private let profileGate: CodexProfileOperationGate
     private let permitPool: CodexRefreshPermitPool
@@ -359,12 +373,14 @@ final class CodexTokenRefreshService: @unchecked Sendable {
 
     init(
         transport: CodexTokenRefreshTransport = URLSessionCodexTokenRefreshTransport(),
+        awsCredentials: any AWSSecretCredentialProviding = AWSCLISecretCredentialProvider(),
         credentialStore: CodexCanonicalCredentialStore = CodexCanonicalCredentialStore(),
         profileGate: CodexProfileOperationGate = .shared,
         permitPool: CodexRefreshPermitPool = .shared,
         now: @escaping () -> Date = Date.init
     ) {
         self.transport = transport
+        self.awsCredentials = awsCredentials
         self.credentialStore = credentialStore
         self.profileGate = profileGate
         self.permitPool = permitPool
@@ -382,6 +398,16 @@ final class CodexTokenRefreshService: @unchecked Sendable {
 
         if let liveAuth = credentialStore.activeAuth(for: initial) {
             return .ready(CodexUsageCredential(accessToken: liveAuth.accessToken, didRefresh: false))
+        }
+
+        if credentialStore.awsSourceMetadata(for: initial) != nil {
+            do {
+                return try await profileGate.withExclusiveAccess(for: profileKey) {
+                    await self.credentialFromAWS(profileKey: profileKey, profile: profile, forceRefresh: forceRefresh)
+                }
+            } catch {
+                return .unavailable(Self.temporaryFailureMessage)
+            }
         }
 
         if let blocked = blockedResult(
@@ -423,6 +449,50 @@ final class CodexTokenRefreshService: @unchecked Sendable {
             return auth.lastRefreshDate == nil || expiresAt <= now.addingTimeInterval(proactiveWindow)
         }
         return auth.lastRefreshDate == nil
+    }
+
+    private func credentialFromAWS(
+        profileKey: String, profile: [String: Any], forceRefresh: Bool
+    ) async -> CodexUsageCredentialResult {
+        guard let current = credentialStore.credential(profileKey: profileKey, profile: profile) else {
+            return .unavailable(Self.reloginRequiredMessage)
+        }
+        if let live = credentialStore.activeAuth(for: current) {
+            return .ready(CodexUsageCredential(accessToken: live.accessToken, didRefresh: false))
+        }
+        guard let metadata = credentialStore.awsSourceMetadata(for: current),
+              let source = AWSSecretCredentialSource(metadata: metadata) else {
+            return .unavailable("AWS credential source is not configured correctly")
+        }
+        guard forceRefresh || source.isDue(auth: current.auth, at: now()) else {
+            return .ready(CodexUsageCredential(accessToken: current.auth.accessToken, didRefresh: false))
+        }
+        do {
+            // AWS owns this shared account's refresh token. Read its latest rotation
+            // rather than consuming a local copy and racing the remote process.
+            let data = try await awsCredentials.authData(from: source)
+            guard let root = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let imported = StoredCodexAuth.parse(root: root),
+                  imported.matchesIdentity(of: current.auth),
+                  imported.accountID == current.auth.accountID,
+                  !imported.refreshToken.isEmpty else {
+                return .unavailable("AWS credentials do not match this account")
+            }
+            guard imported.accessExpiresAt > Int(now().timeIntervalSince1970 * 1000) else {
+                return .unavailable("AWS credentials have expired")
+            }
+            let updated = try credentialStore.persist(root: root, expected: current, awsSyncedAt: now())
+            return .ready(CodexUsageCredential(accessToken: updated.auth.accessToken,
+                                              didRefresh: updated.auth.accessToken != current.auth.accessToken))
+        } catch {
+            if let live = credentialStore.activeAuth(for: current) {
+                return .ready(CodexUsageCredential(accessToken: live.accessToken, didRefresh: false))
+            }
+            if !forceRefresh && current.auth.accessExpiresAt > Int(now().timeIntervalSince1970 * 1000) {
+                return .ready(CodexUsageCredential(accessToken: current.auth.accessToken, didRefresh: false))
+            }
+            return .unavailable("Could not sync credentials from AWS Secrets Manager")
+        }
     }
 
     private func refreshWithinGate(

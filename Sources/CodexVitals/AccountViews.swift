@@ -89,6 +89,7 @@ struct AccountListView: View {
             + vm.normalActiveAccounts
             + vm.nonFreeExhaustedAccounts
             + vm.freeWaitingAccounts
+            + vm.attentionAccounts
     }
 
     private var providerSections: [(provider: AccountProvider, accounts: [Account])] {
@@ -112,7 +113,8 @@ struct AccountListView: View {
     private func flatProviderContent(_ provider: AccountProvider) -> some View {
         let priority = providerAccounts(vm.priorityAccounts, provider: provider)
         let active = providerAccounts(vm.normalActiveAccounts, provider: provider)
-        let exhausted = providerAccounts(vm.exhaustedAccounts, provider: provider)
+        let exhausted = providerAccounts(vm.waitingForResetAccounts, provider: provider)
+        let attention = providerAccounts(vm.attentionAccounts, provider: provider)
 
         if !priority.isEmpty {
             PrioritySeparatorHeader(count: priority.count)
@@ -127,13 +129,17 @@ struct AccountListView: View {
                 freeWaitingGroup(provider)
             }
         }
+        if !attention.isEmpty {
+            attentionGroup(count: attention.count) { rows(attention) }
+        }
     }
 
     @ViewBuilder
     private func groupedProviderContent(_ provider: AccountProvider) -> some View {
         let priority = providerAccounts(vm.priorityAccounts, provider: provider)
         let active = providerAccounts(vm.normalActiveAccounts, provider: provider)
-        let exhausted = providerAccounts(vm.exhaustedAccounts, provider: provider)
+        let exhausted = providerAccounts(vm.waitingForResetAccounts, provider: provider)
+        let attention = providerAccounts(vm.attentionAccounts, provider: provider)
 
         if !priority.isEmpty {
             PrioritySeparatorHeader(count: priority.count)
@@ -146,6 +152,11 @@ struct AccountListView: View {
             waitingForResetGroup(count: exhausted.count) {
                 workspaceGroups(providerGroups(vm.groupedExhaustedAccounts, provider: provider), provider: provider)
                 freeWaitingGroup(provider)
+            }
+        }
+        if !attention.isEmpty {
+            attentionGroup(count: attention.count) {
+                workspaceGroups(providerGroups(vm.groupedAttentionAccounts, provider: provider), provider: provider)
             }
         }
     }
@@ -198,6 +209,23 @@ struct AccountListView: View {
             }
         }
         .opacity(0.8)
+    }
+
+    @ViewBuilder
+    private func attentionGroup<Content: View>(count: Int, @ViewBuilder content: () -> Content) -> some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 6) {
+                Image(systemName: "exclamationmark.triangle")
+                    .foregroundColor(Theme.warningText)
+                Text("Needs attention · \(count)")
+                    .foregroundColor(.secondary)
+                Spacer()
+            }
+            .font(.system(size: 11, weight: .semibold))
+            .padding(.horizontal, 12)
+            .frame(height: 27)
+            content()
+        }
     }
 
     @ViewBuilder

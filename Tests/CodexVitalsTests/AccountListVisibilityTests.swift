@@ -1,4 +1,5 @@
 import XCTest
+import UserNotifications
 @testable import CodexVitals
 
 final class AccountListVisibilityTests: XCTestCase {
@@ -80,6 +81,22 @@ final class AccountListVisibilityTests: XCTestCase {
 
         XCTAssertEqual(visible.map(\.id), [healthy.id, errored.id])
         XCTAssertEqual(UsageViewModel.errorCount(in: visible), 1)
+    }
+
+    @MainActor
+    func testAuthenticationFailuresAreSeparateFromConfirmedQuotaResets() {
+        let healthy = makeAccount(id: "healthy", email: "healthy@example.com", hasError: false)
+        let failed = makeAccount(id: "failed", email: "failed@example.com", hasError: true)
+        let exhausted = makeAccount(id: "exhausted", email: "exhausted@example.com", plan: "team",
+                                    sessionFree: 0, weeklyFree: 80, sessionResetSeconds: 3600)
+        let viewModel = UsageViewModel(resetNotificationService: NoopUsageResetNotifier(), loadPersistedState: false)
+        viewModel.accounts = [healthy, failed, exhausted]
+        XCTAssertFalse(failed.isWaitingForReset)
+        XCTAssertTrue(exhausted.isWaitingForReset)
+        XCTAssertEqual(viewModel.attentionAccounts.map(\.id), [failed.id])
+        XCTAssertEqual(viewModel.waitingForResetAccounts.map(\.id), [exhausted.id])
+        XCTAssertEqual(viewModel.nonFreeExhaustedAccounts.map(\.id), [exhausted.id])
+        XCTAssertEqual((viewModel.priorityAccounts + viewModel.normalActiveAccounts).map(\.id), [healthy.id])
     }
 
     func testDedupIDFallsBackToProfileKeyWhenAccountIDIsMissing() {
@@ -817,4 +834,10 @@ final class AccountListVisibilityTests: XCTestCase {
             errorMessage: nil
         )
     }
+}
+
+private final class NoopUsageResetNotifier: UsageResetNotifying {
+    func requestAuthorization() async -> Bool { false }
+    func authorizationStatus() async -> UNAuthorizationStatus { .denied }
+    func deliver(events: [UsageResetEvent]) async {}
 }

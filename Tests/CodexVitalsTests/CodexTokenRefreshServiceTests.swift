@@ -1,3 +1,4 @@
+import CryptoKit
 import XCTest
 @testable import CodexVitals
 
@@ -175,6 +176,116 @@ final class CodexTokenRefreshServiceTests: XCTestCase {
         XCTAssertEqual(refreshCallCount, 1)
     }
 
+    func testAWSImportRecoversPermanentFailureWithoutSpendingSharedRefreshToken() async throws {
+        let fixture = try makeFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.rootURL) }
+        try configureAWS(fixture, lastSyncedAt: nil)
+        let metaURL = fixture.authURL.deletingLastPathComponent().appendingPathComponent("meta.json")
+        var meta = try XCTUnwrap(AppStorage.readJSON(metaURL))
+        meta["token_refresh"] = [
+            "status": "permanent", "error_code": "invalid_refresh_token",
+            "auth_revision": SHA256.hash(data: try Data(contentsOf: fixture.authURL)).map { String(format: "%02x", $0) }.joined(),
+        ]
+        try AppStorage.writeJSON(meta, to: metaURL)
+        let imported = authRoot(now: fixture.now, accessExpiresAt: fixture.now.addingTimeInterval(7 * 86400).timeIntervalSince1970,
+                                refreshToken: "aws-owned-refresh")
+        let aws = MockAWSSecretCredentials(result: .success(try JSONSerialization.data(withJSONObject: imported)))
+        let oauth = MockRefreshTransport(response: .init(statusCode: 500, data: Data(), retryAfter: nil))
+        let service = CodexTokenRefreshService(transport: oauth, awsCredentials: aws, credentialStore: fixture.store, now: { fixture.now })
+        let result = await service.credentialForUsage(profileKey: fixture.profileKey, profile: fixture.staleProfile)
+        guard case let .ready(credential) = result else { return XCTFail("Expected AWS recovery") }
+        XCTAssertEqual(credential.accessToken, StoredCodexAuth.parse(root: imported)?.accessToken)
+        XCTAssertEqual(StoredCodexAuth.load(from: fixture.authURL)?.refreshToken, "aws-owned-refresh")
+        let updatedMeta = try XCTUnwrap(AppStorage.readJSON(metaURL))
+        XCTAssertNil(updatedMeta["token_refresh"])
+        XCTAssertNotNil((updatedMeta["credential_source"] as? [String: Any])?["last_synced_at"])
+        let awsCalls = await aws.callCount(); let oauthCalls = await oauth.callCount()
+        XCTAssertEqual(awsCalls, 1); XCTAssertEqual(oauthCalls, 0)
+    }
+
+    func testRecentlySyncedAWSAccountSkipsLocalDailyTokenRenewal() async throws {
+        let fixture = try makeFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.rootURL) }
+        var root = authRoot(now: fixture.now, accessExpiresAt: fixture.now.addingTimeInterval(7 * 86400).timeIntervalSince1970)
+        root["last_refresh"] = ISO8601DateFormatter.codexVitals.string(from: fixture.now.addingTimeInterval(-2 * 86400))
+        try AppStorage.writeJSON(root, to: fixture.authURL)
+        try configureAWS(fixture, lastSyncedAt: fixture.now)
+        let aws = MockAWSSecretCredentials(result: .failure(.unavailable))
+        let oauth = MockRefreshTransport(response: .init(statusCode: 500, data: Data(), retryAfter: nil))
+        let service = CodexTokenRefreshService(transport: oauth, awsCredentials: aws, credentialStore: fixture.store, now: { fixture.now })
+        guard case .ready = await service.credentialForUsage(profileKey: fixture.profileKey, profile: fixture.staleProfile) else {
+            return XCTFail("Expected cached AWS access token")
+        }
+        let awsCalls = await aws.callCount(); let oauthCalls = await oauth.callCount()
+        XCTAssertEqual(awsCalls, 0); XCTAssertEqual(oauthCalls, 0)
+    }
+
+    func testWrongAWSAccountCannotOverwriteSavedCredentials() async throws {
+        let fixture = try makeFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.rootURL) }
+        try configureAWS(fixture, lastSyncedAt: nil)
+        let before = try Data(contentsOf: fixture.authURL)
+        var root = authRoot(now: fixture.now, accessExpiresAt: fixture.now.addingTimeInterval(86400).timeIntervalSince1970)
+        var tokens = try XCTUnwrap(root["tokens"] as? [String: Any]); tokens["account_id"] = "another-account"; root["tokens"] = tokens
+        let aws = MockAWSSecretCredentials(result: .success(try JSONSerialization.data(withJSONObject: root)))
+        let service = CodexTokenRefreshService(awsCredentials: aws, credentialStore: fixture.store, now: { fixture.now })
+        guard case .unavailable = await service.credentialForUsage(profileKey: fixture.profileKey, profile: fixture.staleProfile) else {
+            return XCTFail("Expected account identity rejection")
+        }
+        XCTAssertEqual(try Data(contentsOf: fixture.authURL), before)
+    }
+
+    func testAWSAccountSyncsAfterOneDayEvenWithValidAccessToken() async throws {
+        let fixture = try makeFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.rootURL) }
+        let root = authRoot(now: fixture.now, accessExpiresAt: fixture.now.addingTimeInterval(7 * 86400).timeIntervalSince1970)
+        try AppStorage.writeJSON(root, to: fixture.authURL)
+        try configureAWS(fixture, lastSyncedAt: fixture.now.addingTimeInterval(-86400))
+        let aws = MockAWSSecretCredentials(result: .success(try JSONSerialization.data(withJSONObject: root)))
+        let oauth = MockRefreshTransport(response: .init(statusCode: 500, data: Data(), retryAfter: nil))
+        let service = CodexTokenRefreshService(transport: oauth, awsCredentials: aws, credentialStore: fixture.store, now: { fixture.now })
+        guard case .ready = await service.credentialForUsage(profileKey: fixture.profileKey, profile: fixture.staleProfile) else {
+            return XCTFail("Expected daily AWS sync")
+        }
+        let awsCalls = await aws.callCount(); let oauthCalls = await oauth.callCount()
+        XCTAssertEqual(awsCalls, 1); XCTAssertEqual(oauthCalls, 0)
+    }
+
+    func testAWSFailureDoesNotFallBackToSharedRefreshToken() async throws {
+        let fixture = try makeFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.rootURL) }
+        try configureAWS(fixture, lastSyncedAt: nil)
+        let aws = MockAWSSecretCredentials(result: .failure(.unavailable))
+        let oauth = MockRefreshTransport(response: .init(statusCode: 500, data: Data(), retryAfter: nil))
+        let service = CodexTokenRefreshService(transport: oauth, awsCredentials: aws, credentialStore: fixture.store, now: { fixture.now })
+        guard case .unavailable = await service.credentialForUsage(profileKey: fixture.profileKey, profile: fixture.staleProfile) else {
+            return XCTFail("Expected AWS unavailable")
+        }
+        let oauthCalls = await oauth.callCount(); XCTAssertEqual(oauthCalls, 0)
+    }
+
+    func testActiveAWSProfileRemainsOwnedByCodex() async throws {
+        let fixture = try makeFixture(writeMatchingLiveAuth: true)
+        defer { try? FileManager.default.removeItem(at: fixture.rootURL) }
+        try configureAWS(fixture, lastSyncedAt: nil)
+        let aws = MockAWSSecretCredentials(result: .failure(.unavailable))
+        let service = CodexTokenRefreshService(awsCredentials: aws, credentialStore: fixture.store, now: { fixture.now })
+        guard case let .ready(credential) = await service.credentialForUsage(profileKey: fixture.profileKey, profile: fixture.staleProfile) else {
+            return XCTFail("Expected live Codex credential")
+        }
+        XCTAssertEqual(credential.accessToken, fixture.liveAccessToken)
+        let awsCalls = await aws.callCount(); XCTAssertEqual(awsCalls, 0)
+    }
+
+    private func configureAWS(_ fixture: Fixture, lastSyncedAt: Date?) throws {
+        let url = fixture.authURL.deletingLastPathComponent().appendingPathComponent("meta.json")
+        var meta = try XCTUnwrap(AppStorage.readJSON(url))
+        var source: [String: Any] = ["kind": "aws_secrets_manager", "aws_profile": "default", "region": "us-east-2", "secret_id": "synthetic-auth"]
+        if let lastSyncedAt { source["last_synced_at"] = ISO8601DateFormatter.codexVitals.string(from: lastSyncedAt) }
+        meta["credential_source"] = source
+        try AppStorage.writeJSON(meta, to: url)
+    }
+
     private struct Fixture {
         let rootURL: URL
         let accountsURL: URL
@@ -285,6 +396,17 @@ final class CodexTokenRefreshServiceTests: XCTestCase {
             .replacingOccurrences(of: "=", with: "")
         return "header.\(encoded).signature"
     }
+}
+
+private actor MockAWSSecretCredentials: AWSSecretCredentialProviding {
+    let result: Result<Data, AWSSecretCredentialError>
+    private var calls = 0
+    init(result: Result<Data, AWSSecretCredentialError>) { self.result = result }
+    func authData(from source: AWSSecretCredentialSource) throws -> Data {
+        calls += 1
+        return try result.get()
+    }
+    func callCount() -> Int { calls }
 }
 
 private actor MockRefreshTransport: CodexTokenRefreshTransport {

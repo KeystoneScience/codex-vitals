@@ -242,6 +242,10 @@ struct Account: Identifiable, Equatable, Codable, Sendable {
         plan.codexVitalsNormalized == "free"
     }
 
+    var isWaitingForReset: Bool {
+        !hasError && usageWindows.contains(where: \.isExhausted)
+    }
+
     var isFreeWaitingForReset: Bool {
         guard !hasError,
               isFreePlan,
