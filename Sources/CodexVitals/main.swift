@@ -45,11 +45,16 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private func setupStatusItem() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         guard let button = statusItem.button else { return }
-        let img = statusBarSymbolNames.lazy.compactMap {
-            NSImage(systemSymbolName: $0, accessibilityDescription: "Headroom")
+        let brandImage = Bundle.main.url(forResource: "HeadroomHeader", withExtension: "png")
+            .flatMap { NSImage(contentsOf: $0) }
+        let img = brandImage ?? statusBarSymbolNames.lazy.compactMap {
+            NSImage(systemSymbolName: $0, accessibilityDescription: AppInfo.name)
         }.first
+        img?.size = NSSize(width: 22, height: 22)
         img?.isTemplate = true
         button.image = img
+        button.toolTip = AppInfo.name
+        button.setAccessibilityLabel(AppInfo.name)
         button.action = #selector(togglePopover(_:))
         button.target = self
     }

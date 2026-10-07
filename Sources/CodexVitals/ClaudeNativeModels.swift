@@ -302,6 +302,7 @@ struct ClaudeUsageResponse: Decodable, Sendable {
 
 enum ClaudeNativeError: LocalizedError, Equatable, Sendable {
     case claudeCLIUnavailable
+    case claudeCLIIncompatible
     case keychainUnavailable(String)
     case keychainValueTooLarge
     case invalidCredentials
@@ -322,6 +323,8 @@ enum ClaudeNativeError: LocalizedError, Equatable, Sendable {
         switch self {
         case .claudeCLIUnavailable:
             return "Claude Code is not installed."
+        case .claudeCLIIncompatible:
+            return "Update Claude Code before adding an account, then try again."
         case let .keychainUnavailable(message):
             return "Claude Keychain unavailable: \(message)"
         case .keychainValueTooLarge:

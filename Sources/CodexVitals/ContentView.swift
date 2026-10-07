@@ -313,7 +313,7 @@ struct HeaderView: View {
     }
 }
 
-/// The selected white quota glyph is used only beside the header title.
+/// The selected quota glyph is shared with the menu bar icon.
 private struct HeadroomHeaderIcon: View {
     private static let image: NSImage = {
         let repositoryAsset = URL(fileURLWithPath: #filePath)

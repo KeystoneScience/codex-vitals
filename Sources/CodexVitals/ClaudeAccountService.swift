@@ -85,8 +85,10 @@ actor ClaudeAccountService {
 
     @discardableResult
     func addAccount() async throws -> ClaudeNativeProfile {
+        let command = try ClaudeCLI.resolveLoginCommand(email: nil, fileManager: fileManager)
+        try Task.checkCancellation()
         try captureCurrentActiveBeforeLogin()
-        try await runLogin(email: nil)
+        try await runLogin(command: command)
         let profile = try captureLoggedInAccount(expectedProfile: nil)
         try accountStore.setHidden(profileID: profile.id, hidden: false)
         invalidateUsageState(profileID: profile.id)
@@ -98,8 +100,10 @@ actor ClaudeAccountService {
         guard let expected = try accountStore.profile(id: profileID) else {
             throw ClaudeNativeError.profileMissing
         }
+        let command = try ClaudeCLI.resolveLoginCommand(email: expected.email, fileManager: fileManager)
+        try Task.checkCancellation()
         try captureCurrentActiveBeforeLogin()
-        try await runLogin(email: expected.email)
+        try await runLogin(command: command)
         let actual = try captureLoggedInAccount(expectedProfile: expected)
         guard actual.id == expected.id else {
             throw ClaudeNativeError.wrongAccount(expected: expected.email, actual: actual.email)
@@ -632,10 +636,7 @@ actor ClaudeAccountService {
         try configStore.restore(configSnapshot)
     }
 
-    private func runLogin(email: String?) async throws {
-        guard let executableURL = resolvedClaudeExecutableURL() else {
-            throw ClaudeNativeError.claudeCLIUnavailable
-        }
+    private func runLogin(command: ClaudeLoginCommand) async throws {
         let temporaryDirectory = fileManager.temporaryDirectory
             .appendingPathComponent("CodexVitals-Claude-Login-\(UUID().uuidString)", isDirectory: true)
         try fileManager.createDirectory(
@@ -654,15 +655,11 @@ actor ClaudeAccountService {
         defer { try? outputHandle.close() }
 
         let process = Process()
-        process.executableURL = executableURL
-        var arguments = ["auth", "login", "--claudeai"]
-        if let email = Account.normalizedAlias(email) {
-            arguments += ["--email", email]
-        }
-        process.arguments = arguments
-        var environment = ProcessInfo.processInfo.environment
-        environment["PATH"] = Self.commandSearchPath(executableURL: executableURL)
-        process.environment = environment
+        process.executableURL = command.executableURL
+        process.arguments = command.arguments
+        process.environment = command.environment
+        process.currentDirectoryURL = temporaryDirectory
+        process.standardInput = FileHandle.nullDevice
         process.standardOutput = outputHandle
         process.standardError = outputHandle
         try process.run()
@@ -689,35 +686,6 @@ actor ClaudeAccountService {
         }
     }
 
-    private func resolvedClaudeExecutableURL() -> URL? {
-        let home = fileManager.homeDirectoryForCurrentUser
-        var candidates = [
-            URL(fileURLWithPath: "/opt/homebrew/bin/claude"),
-            URL(fileURLWithPath: "/usr/local/bin/claude"),
-            home.appendingPathComponent(".local/bin/claude"),
-            home.appendingPathComponent(".volta/bin/claude"),
-            home.appendingPathComponent(".bun/bin/claude"),
-            home.appendingPathComponent(".asdf/shims/claude"),
-            home.appendingPathComponent(".npm-global/bin/claude"),
-        ]
-        candidates += Self.baseCommandSearchDirectories.map {
-            URL(fileURLWithPath: String($0)).appendingPathComponent("claude")
-        }
-        let nvmVersions = home.appendingPathComponent(".nvm/versions/node", isDirectory: true)
-        if let versions = try? fileManager.contentsOfDirectory(
-            at: nvmVersions,
-            includingPropertiesForKeys: nil,
-            options: [.skipsHiddenFiles]
-        ) {
-            candidates += versions.map { $0.appendingPathComponent("bin/claude") }
-        }
-        var seen = Set<String>()
-        return candidates.first {
-            seen.insert($0.standardizedFileURL.path).inserted
-                && fileManager.isExecutableFile(atPath: $0.path)
-        }
-    }
-
     private func terminateLoginProcess() {
         guard let process = loginProcess else { return }
         terminate(process)
@@ -736,21 +704,4 @@ actor ClaudeAccountService {
         process.waitUntilExit()
     }
 
-    private static var baseCommandSearchDirectories: [String] {
-        var directories = [
-            "/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin",
-        ]
-        directories += ProcessInfo.processInfo.environment["PATH"]?
-            .split(separator: ":")
-            .map(String.init) ?? []
-        var seen = Set<String>()
-        return directories.filter { !$0.isEmpty && seen.insert($0).inserted }
-    }
-
-    private static func commandSearchPath(executableURL: URL) -> String {
-        var directories = [executableURL.deletingLastPathComponent().path]
-        directories += baseCommandSearchDirectories
-        var seen = Set<String>()
-        return directories.filter { seen.insert($0).inserted }.joined(separator: ":")
-    }
 }
