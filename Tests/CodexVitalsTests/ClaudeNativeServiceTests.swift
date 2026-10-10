@@ -203,7 +203,7 @@ final class ClaudeNativeServiceTests: XCTestCase {
         XCTAssertNil(result.errorMessage)
     }
 
-    func testLoadReportsInvalidCredentialsWhenClaudeProfileExists() async throws {
+    func testClearedActiveCredentialReportsMissingSavedCredentialWithoutGlobalError() async throws {
         let root = temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
         let oauth = oauthAccount(email: "configured@example.com", uuid: "configured-account")
@@ -228,7 +228,60 @@ final class ClaudeNativeServiceTests: XCTestCase {
         let result = await service.loadAccounts()
 
         XCTAssertEqual(result.accounts.count, 1)
-        XCTAssertEqual(result.errorMessage, "Claude credentials are invalid.")
+        XCTAssertNil(result.errorMessage)
+        XCTAssertEqual(result.accounts.first?.providerStatus, ClaudeAccountStatus.noCredentials.rawValue)
+    }
+
+    func testClearedActiveLoginDoesNotOverwriteSavedCredentialOrBlockReconnect() async throws {
+        let fixture = try makeSwitchFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let saved = try XCTUnwrap(fixture.keychain.value(
+            service: ClaudeKeychainStore.profileService, account: fixture.targetProfileID
+        ))
+        let config = try fixture.config.read()
+        let target = try XCTUnwrap(try fixture.accountStore.profile(id: fixture.targetProfileID))
+        try fixture.config.writeOAuthAccount(try XCTUnwrap(target.oauthAccount))
+        let empty = "{\"claudeAiOauth\":{\"accessToken\":\"\",\"refreshToken\":\"\",\"expiresAt\":0}}"
+        try fixture.keychain.write(service: ClaudeKeychainStore.activeService, account: "tester", value: empty)
+        let provider = SequenceClaudeUsageProvider(results: [.success(try usageResult(credential: saved, now: Date()))])
+        try fixture.accountStore.setHidden(profileID: fixture.liveProfileID, hidden: true)
+        let service = ClaudeAccountService(
+            keychain: fixture.keychain, accountStore: fixture.accountStore,
+            configStore: fixture.config, usageClient: provider
+        )
+
+        try await service.captureCurrentActiveBeforeLogin()
+        let result = await service.loadAccounts()
+        let request = await provider.lastRequest()
+
+        XCTAssertNil(result.errorMessage)
+        XCTAssertEqual(result.accounts.first?.providerStatus, ClaudeAccountStatus.ok.rawValue)
+        XCTAssertEqual(request?.credential, saved)
+        XCTAssertEqual(request?.refreshIfNeeded, true)
+        XCTAssertEqual(fixture.keychain.value(service: ClaudeKeychainStore.profileService, account: fixture.targetProfileID), saved)
+        XCTAssertEqual(fixture.keychain.value(service: ClaudeKeychainStore.activeService, account: "tester"), empty)
+        try fixture.config.restore(config)
+    }
+
+    func testClearedSavedCredentialCanUsePreviousCopyAndReportsActualRejection() async throws {
+        let fixture = try makeSwitchFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let saved = try XCTUnwrap(fixture.keychain.value(service: ClaudeKeychainStore.profileService, account: fixture.targetProfileID))
+        try fixture.keychain.write(service: ClaudeKeychainStore.profileService, account: fixture.targetProfileID + ".previous", value: saved)
+        try fixture.keychain.write(service: ClaudeKeychainStore.profileService, account: fixture.targetProfileID, value: "{}")
+        try fixture.accountStore.setHidden(profileID: fixture.liveProfileID, hidden: true)
+        let provider = SequenceClaudeUsageProvider(results: [.failure(.refreshRejected)])
+        let service = ClaudeAccountService(
+            keychain: fixture.keychain, accountStore: fixture.accountStore,
+            configStore: fixture.config, usageClient: provider
+        )
+
+        let result = await service.loadAccounts()
+        let request = await provider.lastRequest()
+
+        XCTAssertEqual(request?.credential, saved)
+        XCTAssertEqual(result.accounts.first?.providerStatus, ClaudeAccountStatus.reloginRequired.rawValue)
+        XCTAssertEqual(fixture.keychain.value(service: ClaudeKeychainStore.profileService, account: fixture.targetProfileID + ".previous"), saved)
     }
 
     func testRetryAfterParserReadsDelaySeconds() throws {
@@ -659,6 +712,7 @@ private struct UnusedClaudeUsageProvider: ClaudeUsageProviding {
 private actor SequenceClaudeUsageProvider: ClaudeUsageProviding {
     private var results: [Result<ClaudeUsageResult, ClaudeNativeError>]
     private var callCount = 0
+    private var latestRequest: (credential: String, refreshIfNeeded: Bool)?
 
     init(results: [Result<ClaudeUsageResult, ClaudeNativeError>]) {
         self.results = results
@@ -671,6 +725,7 @@ private actor SequenceClaudeUsageProvider: ClaudeUsageProviding {
         persistRefreshedCredential: @Sendable (String) async throws -> Void
     ) async throws -> ClaudeUsageResult {
         callCount += 1
+        latestRequest = (credential, refreshIfNeeded)
         guard !results.isEmpty else { throw TestFailure.expected }
         let result = try results.removeFirst().get()
         if result.credential != credential {
@@ -682,6 +737,8 @@ private actor SequenceClaudeUsageProvider: ClaudeUsageProviding {
     func numberOfCalls() -> Int {
         callCount
     }
+
+    func lastRequest() -> (credential: String, refreshIfNeeded: Bool)? { latestRequest }
 }
 
 private enum TestFailure: Error {

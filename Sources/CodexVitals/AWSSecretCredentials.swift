@@ -72,23 +72,21 @@ struct AWSCLISecretCredentialProvider: AWSSecretCredentialProviding {
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = output
         process.standardError = errors
+        // Swift tasks can resume on a different thread after sleeping. Foundation's
+        // waitUntilExit() can then miss the launch thread's run-loop notification,
+        // even after the child has exited. Observe termination before launching and
+        // keep both the normal completion path and cleanup bounded.
+        let completion = ProcessCompletion()
+        process.terminationHandler = { _ in completion.markExited() }
         try process.run()
-        defer {
-            if process.isRunning {
-                process.terminate()
-                let deadline = Date().addingTimeInterval(0.5)
-                while process.isRunning && Date() < deadline { usleep(25_000) }
-                if process.isRunning { kill(process.processIdentifier, SIGKILL) }
-            }
-            process.waitUntilExit()
-        }
-        let deadline = Date().addingTimeInterval(timeout)
-        while process.isRunning {
+        defer { completion.stopIfNeeded(process) }
+        let deadline = ProcessInfo.processInfo.systemUptime + timeout
+        while !completion.hasExited {
             try Task.checkCancellation()
-            guard Date() < deadline else { throw AWSSecretCredentialError.timedOut }
+            guard ProcessInfo.processInfo.systemUptime < deadline else { throw AWSSecretCredentialError.timedOut }
             try await Task.sleep(nanoseconds: 50_000_000)
         }
-        process.waitUntilExit()
+        try Task.checkCancellation()
         guard process.terminationStatus == 0 else { throw AWSSecretCredentialError.unavailable }
         let reader = try FileHandle(forReadingFrom: outputURL)
         defer { try? reader.close() }
@@ -98,5 +96,27 @@ struct AWSCLISecretCredentialProvider: AWSSecretCredentialProviding {
               let value = response["SecretString"] as? String,
               let auth = value.data(using: .utf8) else { throw AWSSecretCredentialError.invalidResponse }
         return auth
+    }
+
+    private final class ProcessCompletion: @unchecked Sendable {
+        private let lock = NSLock()
+        private var didExit = false
+        private let exited = DispatchSemaphore(value: 0)
+
+        var hasExited: Bool { lock.withLock { didExit } }
+
+        func markExited() {
+            lock.withLock { didExit = true }
+            exited.signal()
+        }
+
+        func stopIfNeeded(_ process: Process) {
+            guard !hasExited else { return }
+            if process.isRunning { process.terminate() }
+            if exited.wait(timeout: .now() + 0.5) == .timedOut {
+                if process.isRunning { kill(process.processIdentifier, SIGKILL) }
+                _ = exited.wait(timeout: .now() + 0.5)
+            }
+        }
     }
 }

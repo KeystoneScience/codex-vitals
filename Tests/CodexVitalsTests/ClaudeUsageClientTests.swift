@@ -57,10 +57,74 @@ final class ClaudeUsageClientTests: XCTestCase {
         )
     }
 
+    func testRefreshIdentifiesHeadroomAndPreservesExistingScopes() async throws {
+        let credential = "{\"claudeAiOauth\":{\"accessToken\":\"old-access\",\"refreshToken\":\"old-refresh\",\"expiresAt\":1,\"scopes\":[\"user:profile\",\"user:inference\"]}}"
+        ClaudeUsageURLProtocol.setHandler { request in
+            XCTAssertTrue(request.value(forHTTPHeaderField: "User-Agent")?.hasPrefix("Headroom/") == true)
+            if request.url == ClaudeUsageClient.tokenURL {
+                let body = try XCTUnwrap(try JSONSerialization.jsonObject(with: self.requestBody(request)) as? [String: Any])
+                XCTAssertEqual(body["scope"] as? String, "user:profile user:inference")
+                return (200, self.tokenResponse)
+            }
+            return (200, Data("{}".utf8))
+        }
+        _ = try await client().fetchUsage(
+            credential: credential, expectedAccountUUID: "account-test", refreshIfNeeded: true,
+            persistRefreshedCredential: { _ in }
+        )
+    }
+
+    func testRequestBlockDoesNotMasqueradeAsRevokedLogin() async throws {
+        for shouldRefresh in [false, true] {
+            ClaudeUsageURLProtocol.setHandler { _ in
+                (403, Data("{\"error\":{\"type\":\"request_blocked\",\"message\":\"Request blocked by Cloudflare\"}}".utf8))
+            }
+            do {
+                _ = try await client().fetchUsage(
+                    credential: oldCredential(), expectedAccountUUID: "account-test", refreshIfNeeded: shouldRefresh,
+                    persistRefreshedCredential: { _ in XCTFail("Blocked requests must not replace credentials") }
+                )
+                XCTFail("Expected blocked request")
+            } catch let error as ClaudeNativeError {
+                XCTAssertEqual(error, .serviceUnavailable(403))
+            }
+        }
+    }
+
+    func testRevokedRefreshTokenRequiresLogin() async throws {
+        ClaudeUsageURLProtocol.setHandler { _ in
+            (400, Data("{\"error\":\"invalid_grant\",\"error_description\":\"Refresh token not found or invalid\"}".utf8))
+        }
+        do {
+            _ = try await client().fetchUsage(
+                credential: oldCredential(), expectedAccountUUID: "account-test", refreshIfNeeded: true,
+                persistRefreshedCredential: { _ in XCTFail("Rejected refresh must not replace credentials") }
+            )
+            XCTFail("Expected rejected refresh")
+        } catch let error as ClaudeNativeError {
+            XCTAssertEqual(error, .refreshRejected)
+        }
+    }
+
     private var tokenResponse: Data {
         Data("""
         {"access_token":"renewed-access","refresh_token":"rotated-refresh","expires_in":604800,"account":{"uuid":"account-test"}}
         """.utf8)
+    }
+
+    private func requestBody(_ request: URLRequest) throws -> Data {
+        if let data = request.httpBody { return data }
+        let stream = try XCTUnwrap(request.httpBodyStream)
+        stream.open()
+        defer { stream.close() }
+        var data = Data()
+        var buffer = [UInt8](repeating: 0, count: 1024)
+        while true {
+            let count = stream.read(&buffer, maxLength: buffer.count)
+            if count == 0 { return data }
+            guard count > 0 else { throw try XCTUnwrap(stream.streamError) }
+            data.append(contentsOf: buffer.prefix(count))
+        }
     }
 
     private func oldCredential() throws -> String {

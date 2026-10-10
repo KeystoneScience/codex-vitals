@@ -18,6 +18,10 @@ final class ClaudeUsageClient: ClaudeUsageProviding, @unchecked Sendable {
     static let clientID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
     static let usageURL = URL(string: "https://api.anthropic.com/api/oauth/usage")!
     static let tokenURL = URL(string: "https://platform.claude.com/v1/oauth/token")!
+    private static var userAgent: String {
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "development"
+        return "Headroom/\(version)"
+    }
 
     private let session: URLSession
 
@@ -42,6 +46,8 @@ final class ClaudeUsageClient: ClaudeUsageProviding, @unchecked Sendable {
         request.setValue("Bearer \(credential.accessToken)", forHTTPHeaderField: "Authorization")
         request.setValue("oauth-2025-04-20", forHTTPHeaderField: "anthropic-beta")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(Self.userAgent, forHTTPHeaderField: "User-Agent")
 
         let (data, response): (Data, URLResponse)
         do {
@@ -54,8 +60,11 @@ final class ClaudeUsageClient: ClaudeUsageProviding, @unchecked Sendable {
         case 200:
             let decoded = try JSONDecoder().decode(ClaudeUsageResponse.self, from: data)
             return ClaudeUsageResult(credential: credential.rawValue, response: decoded)
-        case 401, 403:
+        case 401:
             throw ClaudeNativeError.refreshRejected
+        case 403:
+            throw Self.isAuthenticationRejection(data)
+                ? ClaudeNativeError.refreshRejected : ClaudeNativeError.serviceUnavailable(status)
         case 429:
             throw ClaudeNativeError.rateLimited(
                 retryAfter: Self.retryAfterSeconds(from: response as? HTTPURLResponse)
@@ -63,6 +72,13 @@ final class ClaudeUsageClient: ClaudeUsageProviding, @unchecked Sendable {
         default:
             throw ClaudeNativeError.serviceUnavailable(status)
         }
+    }
+
+    private static func isAuthenticationRejection(_ data: Data) -> Bool {
+        guard let body = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return false }
+        let error = body["error"] as? [String: Any]
+        let type = error?["type"] as? String ?? body["error"] as? String
+        return ["authentication_error", "permission_error", "invalid_grant"].contains(type ?? "")
     }
 
     static func retryAfterSeconds(from response: HTTPURLResponse?) -> TimeInterval? {
@@ -86,11 +102,16 @@ final class ClaudeUsageClient: ClaudeUsageProviding, @unchecked Sendable {
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
-        request.httpBody = try JSONSerialization.data(withJSONObject: [
+        request.setValue(Self.userAgent, forHTTPHeaderField: "User-Agent")
+        var body: [String: Any] = [
             "grant_type": "refresh_token",
             "refresh_token": refreshToken,
             "client_id": Self.clientID,
-        ])
+        ]
+        if let scopes = credential.oauth["scopes"] as? [String], !scopes.isEmpty {
+            body["scope"] = scopes.joined(separator: " ")
+        }
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
         let (data, response): (Data, URLResponse)
         do {
@@ -105,7 +126,7 @@ final class ClaudeUsageClient: ClaudeUsageProviding, @unchecked Sendable {
                     retryAfter: Self.retryAfterSeconds(from: response as? HTTPURLResponse)
                 )
             }
-            if status == 400 || status == 401 || status == 403 {
+            if status == 401 || ((status == 400 || status == 403) && Self.isAuthenticationRejection(data)) {
                 throw ClaudeNativeError.refreshRejected
             }
             throw ClaudeNativeError.serviceUnavailable(status)

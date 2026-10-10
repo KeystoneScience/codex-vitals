@@ -48,6 +48,9 @@ actor ClaudeAccountService {
         do {
             try recoverInterruptedSwitchIfNeeded()
             _ = try captureCurrentActiveIfAvailable()
+        } catch ClaudeNativeError.invalidCredentials {
+            // A cleared Claude Code login must not hide a valid saved profile.
+            // Each account's saved credential determines its displayed status.
         } catch {
             integrationError = error.localizedDescription
         }
@@ -255,22 +258,7 @@ actor ClaudeAccountService {
         }
 
         do {
-            let credential: String?
-            if isActive {
-                credential = try keychain.read(
-                    service: ClaudeKeychainStore.activeService,
-                    account: keychain.activeAccountName
-                )
-                if let credential {
-                    try writeProfileCredential(credential, profileID: profile.id)
-                }
-            } else {
-                credential = try keychain.read(
-                    service: ClaudeKeychainStore.profileService,
-                    account: profile.id
-                )
-            }
-            guard let credential else {
+            guard let credential = try credentialForUsage(profile, isActive: isActive) else {
                 return account(
                     profile,
                     isActive: isActive,
@@ -280,9 +268,9 @@ actor ClaudeAccountService {
             }
 
             let result = try await usageClient.fetchUsage(
-                credential: credential,
+                credential: credential.value,
                 expectedAccountUUID: profile.accountUUID,
-                refreshIfNeeded: !isActive,
+                refreshIfNeeded: credential.refreshIfNeeded,
                 persistRefreshedCredential: { [self] updated in
                     try await writeProfileCredential(updated, profileID: profile.id)
                 }
@@ -323,7 +311,7 @@ actor ClaudeAccountService {
                 deferUsageRefresh(profileID: profile.id, now: now)
                 return cachedAccount(profile, isActive: isActive, now: now)
                     ?? account(profile, isActive: isActive, status: .unavailable, windows: [])
-            case let .serviceUnavailable(statusCode) where statusCode >= 500:
+            case let .serviceUnavailable(statusCode) where statusCode == 403 || statusCode >= 500:
                 deferUsageRefresh(profileID: profile.id, now: now)
                 return cachedAccount(profile, isActive: isActive, now: now)
                     ?? account(profile, isActive: isActive, status: .unavailable, windows: [])
@@ -334,6 +322,33 @@ actor ClaudeAccountService {
         } catch {
             return account(profile, isActive: isActive, status: .unavailable, windows: [])
         }
+    }
+
+    private func credentialForUsage(
+        _ profile: ClaudeNativeProfile,
+        isActive: Bool
+    ) throws -> (value: String, refreshIfNeeded: Bool)? {
+        if isActive,
+           let active = try keychain.read(
+               service: ClaudeKeychainStore.activeService,
+               account: keychain.activeAccountName
+           ),
+           (try? ClaudeCredentialEnvelope(rawValue: active)) != nil {
+            try writeProfileCredential(active, profileID: profile.id)
+            // Claude Code owns rotation while a valid live credential exists.
+            return (active, false)
+        }
+
+        for account in [profile.id, previousCredentialAccount(profile.id)] {
+            if let saved = try keychain.read(
+                service: ClaudeKeychainStore.profileService,
+                account: account
+            ),
+               (try? ClaudeCredentialEnvelope(rawValue: saved)) != nil {
+                return (saved, true)
+            }
+        }
+        return nil
     }
 
     private func account(
@@ -484,13 +499,14 @@ actor ClaudeAccountService {
         return profile
     }
 
-    private func captureCurrentActiveBeforeLogin() throws {
+    func captureCurrentActiveBeforeLogin() throws {
         let config = try currentConfigIfPresent()
         let credential = try keychain.read(
             service: ClaudeKeychainStore.activeService,
             account: keychain.activeAccountName
         )
-        guard credential != nil else { return }
+        guard let credential,
+              (try? ClaudeCredentialEnvelope(rawValue: credential)) != nil else { return }
         guard config?.oauthAccount != nil else {
             throw ClaudeNativeError.invalidAccountMetadata
         }
@@ -581,6 +597,7 @@ actor ClaudeAccountService {
     }
 
     private func writeProfileCredential(_ value: String, profileID: String) throws {
+        _ = try ClaudeCredentialEnvelope(rawValue: value)
         let current = try keychain.read(
             service: ClaudeKeychainStore.profileService,
             account: profileID
