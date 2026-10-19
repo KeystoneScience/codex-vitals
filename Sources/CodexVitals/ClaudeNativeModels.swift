@@ -197,15 +197,20 @@ struct ClaudeCredentialEnvelope: Equatable, @unchecked Sendable {
         return value
     }
 
-    func mergingLiveSharedFields(from live: ClaudeCredentialEnvelope?) throws -> String {
-        guard let live else { return rawValue }
+    func mergingLiveSharedFields(from live: String?) throws -> String {
+        // Claude Code can clear OAuth while retaining valid shared MCP/plugin data.
+        // These fields do not require a valid outgoing account credential.
+        guard let live, let liveData = live.data(using: .utf8),
+              let liveRoot = (try? JSONSerialization.jsonObject(with: liveData)) as? [String: Any] else {
+            return rawValue
+        }
         let sharedKeys: Set<String> = [
             "mcpOAuth", "mcpOAuthClientConfig", "mcpXaaIdp",
             "mcpXaaIdpConfig", "pluginSecrets",
         ]
         var composed = root.filter { !sharedKeys.contains($0.key) }
-        for key in sharedKeys where live.root.keys.contains(key) {
-            composed[key] = live.root[key]
+        for key in sharedKeys where liveRoot.keys.contains(key) {
+            composed[key] = liveRoot[key]
         }
         let data = try JSONSerialization.data(withJSONObject: composed, options: [.sortedKeys])
         guard let value = String(data: data, encoding: .utf8) else {

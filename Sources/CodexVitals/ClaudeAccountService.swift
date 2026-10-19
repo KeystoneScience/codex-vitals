@@ -201,8 +201,8 @@ actor ClaudeAccountService {
             service: ClaudeKeychainStore.activeService,
             account: activeAccountName
         )
-        let originalEnvelope = try originalCredential.map(ClaudeCredentialEnvelope.init(rawValue:))
-        if target.matches(oauthAccount: configSnapshot.oauthAccount ?? [:]) {
+        let originalEnvelope = originalCredential.flatMap { try? ClaudeCredentialEnvelope(rawValue: $0) }
+        if target.matches(oauthAccount: configSnapshot.oauthAccount ?? [:]), originalEnvelope != nil {
             if let originalCredential {
                 try writeProfileCredential(originalCredential, profileID: target.id)
             }
@@ -220,7 +220,7 @@ actor ClaudeAccountService {
                 value: originalCredential
             )
         }
-        let composed = try targetEnvelope.mergingLiveSharedFields(from: originalEnvelope)
+        let composed = try targetEnvelope.mergingLiveSharedFields(from: originalCredential)
         do {
             try keychain.write(
                 service: ClaudeKeychainStore.activeService,
@@ -589,7 +589,8 @@ actor ClaudeAccountService {
         activeCredential: String?
     ) throws {
         guard let oauthAccount = configSnapshot.oauthAccount,
-              let activeCredential else { return }
+              let activeCredential,
+              (try? ClaudeCredentialEnvelope(rawValue: activeCredential)) != nil else { return }
         let identity = ClaudeIdentity(oauthAccount: oauthAccount)
         guard identity.isValid else { return }
         let profile = try accountStore.upsert(identity: identity, oauthAccount: oauthAccount)

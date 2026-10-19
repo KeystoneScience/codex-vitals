@@ -89,7 +89,7 @@ final class ClaudeNativeServiceTests: XCTestCase {
         ))
 
         let composed = try ClaudeCredentialEnvelope(
-            rawValue: target.mergingLiveSharedFields(from: live)
+            rawValue: target.mergingLiveSharedFields(from: live.rawValue)
         )
 
         XCTAssertEqual(composed.accessToken, "target-access")
@@ -470,6 +470,118 @@ final class ClaudeNativeServiceTests: XCTestCase {
         XCTAssertEqual(config.oauthAccount?["emailAddress"] as? String, "live@example.com")
         let shadow = try XCTUnwrap(fixture.config.shadowCredential)
         XCTAssertEqual(try ClaudeCredentialEnvelope(rawValue: shadow).accessToken, "live-access")
+    }
+
+    func testNativeSwitchFromClearedLoginPreservesSharedFieldsAndSavedOutgoingCredential() async throws {
+        let fixture = try makeSwitchFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let savedOutgoing = credential(access: "saved-live-access")
+        try fixture.keychain.write(
+            service: ClaudeKeychainStore.profileService,
+            account: fixture.liveProfileID,
+            value: savedOutgoing
+        )
+        let cleared = #"{"claudeAiOauth":{"accessToken":"","refreshToken":"","expiresAt":0},"mcpOAuth":{"token":"shared-mcp"}}"#
+        try fixture.keychain.write(service: ClaudeKeychainStore.activeService, account: "tester", value: cleared)
+
+        try await fixture.service.switchAccount(profileID: fixture.targetProfileID)
+
+        let active = try ClaudeCredentialEnvelope(rawValue: XCTUnwrap(fixture.keychain.value(
+            service: ClaudeKeychainStore.activeService, account: "tester"
+        )))
+        XCTAssertEqual(active.accessToken, "target-access")
+        XCTAssertEqual((active.root["mcpOAuth"] as? [String: String])?["token"], "shared-mcp")
+        XCTAssertNil(active.root["pluginSecrets"])
+        XCTAssertEqual(fixture.keychain.value(
+            service: ClaudeKeychainStore.profileService, account: fixture.liveProfileID
+        ), savedOutgoing)
+        XCTAssertNil(fixture.keychain.value(
+            service: ClaudeKeychainStore.profileService, account: fixture.liveProfileID + ".previous"
+        ))
+        XCTAssertNil(fixture.keychain.value(
+            service: ClaudeKeychainStore.safetyService, account: ClaudeKeychainStore.safetyAccount
+        ))
+        let config = try fixture.config.read()
+        XCTAssertEqual(config.oauthAccount?["emailAddress"] as? String, "target@example.com")
+        XCTAssertEqual(config.object["theme"] as? String, "dark")
+    }
+
+    func testNativeSwitchCanRecoverMalformedOrMissingLiveCredential() async throws {
+        for invalid: String? in ["{}", "not-json", nil] {
+            let fixture = try makeSwitchFixture()
+            defer { try? FileManager.default.removeItem(at: fixture.root) }
+            if let invalid {
+                try fixture.keychain.write(service: ClaudeKeychainStore.activeService, account: "tester", value: invalid)
+            } else {
+                try fixture.keychain.delete(service: ClaudeKeychainStore.activeService, account: "tester")
+            }
+
+            try await fixture.service.switchAccount(profileID: fixture.targetProfileID)
+
+            let active = try ClaudeCredentialEnvelope(rawValue: XCTUnwrap(fixture.keychain.value(
+                service: ClaudeKeychainStore.activeService, account: "tester"
+            )))
+            XCTAssertEqual(active.accessToken, "target-access")
+            XCTAssertEqual(try fixture.config.read().oauthAccount?["emailAddress"] as? String, "target@example.com")
+        }
+    }
+
+    func testNativeSwitchRestoresSavedCredentialWhenSelectedAccountIsAlreadyActiveButCleared() async throws {
+        let fixture = try makeSwitchFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let saved = fixture.keychain.value(
+            service: ClaudeKeychainStore.profileService, account: fixture.targetProfileID
+        )
+        let target = try XCTUnwrap(fixture.accountStore.profile(id: fixture.targetProfileID))
+        try fixture.config.writeOAuthAccount(XCTUnwrap(target.oauthAccount))
+        try fixture.keychain.write(service: ClaudeKeychainStore.activeService, account: "tester", value: "{}")
+
+        try await fixture.service.switchAccount(profileID: fixture.targetProfileID)
+
+        let active = try ClaudeCredentialEnvelope(rawValue: XCTUnwrap(fixture.keychain.value(
+            service: ClaudeKeychainStore.activeService, account: "tester"
+        )))
+        XCTAssertEqual(active.accessToken, "target-access")
+        XCTAssertEqual(fixture.keychain.value(
+            service: ClaudeKeychainStore.profileService, account: fixture.targetProfileID
+        ), saved)
+    }
+
+    func testNativeSwitchRejectsClearedTargetWithoutChangingActiveAccount() async throws {
+        let fixture = try makeSwitchFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let original = fixture.keychain.value(service: ClaudeKeychainStore.activeService, account: "tester")
+        try fixture.keychain.write(
+            service: ClaudeKeychainStore.profileService, account: fixture.targetProfileID, value: "{}"
+        )
+
+        do {
+            try await fixture.service.switchAccount(profileID: fixture.targetProfileID)
+            XCTFail("Expected invalid target credential")
+        } catch ClaudeNativeError.invalidCredentials { }
+
+        XCTAssertEqual(fixture.keychain.value(service: ClaudeKeychainStore.activeService, account: "tester"), original)
+        XCTAssertEqual(try fixture.config.read().oauthAccount?["emailAddress"] as? String, "live@example.com")
+    }
+
+    func testNativeSwitchFromClearedLoginRollsBackOnConfigFailure() async throws {
+        let fixture = try makeSwitchFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let cleared = #"{"claudeAiOauth":{},"mcpOAuth":{"token":"shared-mcp"}}"#
+        try fixture.keychain.write(service: ClaudeKeychainStore.activeService, account: "tester", value: cleared)
+        fixture.config.shadowCredential = cleared
+        fixture.config.failNextOAuthWrite = true
+
+        do {
+            try await fixture.service.switchAccount(profileID: fixture.targetProfileID)
+            XCTFail("Expected config write failure")
+        } catch TestFailure.expected { }
+
+        XCTAssertEqual(fixture.keychain.value(
+            service: ClaudeKeychainStore.activeService, account: "tester"
+        ), cleared)
+        XCTAssertEqual(fixture.config.shadowCredential, cleared)
+        XCTAssertEqual(try fixture.config.read().oauthAccount?["emailAddress"] as? String, "live@example.com")
     }
 
     func testRemovingActiveClaudeProfileHidesItWithoutLoggingClaudeOut() async throws {
