@@ -924,7 +924,9 @@ struct AccountCompactRow: View {
             } else if canShowSwapControl {
                 SwitchAccountButton(
                     action: switchAccount,
-                    helpText: "Switch to this account in \(account.accountProvider.displayName). This does not use a banked reset."
+                    helpText: account.isClaudeAccount
+                        ? "Switch Claude Code CLI to this account. Claude Desktop uses a separate sign-in."
+                        : "Switch to this account in \(account.accountProvider.displayName). This does not use a banked reset."
                 )
                     .disabled(isSwitchBlocked)
                     .opacity(isSwitchBlocked ? 0.35 : 1)

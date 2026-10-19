@@ -10,7 +10,7 @@ final class ClaudeUsageClientTests: XCTestCase {
 
     func testRotatedCredentialIsPersistedBeforeRateLimitedUsageRequest() async throws {
         let recorder = CredentialRecorder()
-        ClaudeUsageURLProtocol.setHandler { request in
+        setUsageHandler { request in
             if request.url == ClaudeUsageClient.tokenURL {
                 return (200, self.tokenResponse)
             }
@@ -33,7 +33,7 @@ final class ClaudeUsageClientTests: XCTestCase {
     }
 
     func testPersistenceFailureStopsUsageRequest() async throws {
-        ClaudeUsageURLProtocol.setHandler { request in
+        setUsageHandler { request in
             XCTAssertEqual(request.url, ClaudeUsageClient.tokenURL)
             return (200, self.tokenResponse)
         }
@@ -47,7 +47,7 @@ final class ClaudeUsageClientTests: XCTestCase {
     }
 
     func testActiveAccountDoesNotSpendRefreshToken() async throws {
-        ClaudeUsageURLProtocol.setHandler { request in
+        setUsageHandler { request in
             XCTAssertEqual(request.url, ClaudeUsageClient.usageURL)
             return (200, Data("{}".utf8))
         }
@@ -59,7 +59,7 @@ final class ClaudeUsageClientTests: XCTestCase {
 
     func testRefreshIdentifiesHeadroomAndPreservesExistingScopes() async throws {
         let credential = "{\"claudeAiOauth\":{\"accessToken\":\"old-access\",\"refreshToken\":\"old-refresh\",\"expiresAt\":1,\"scopes\":[\"user:profile\",\"user:inference\"]}}"
-        ClaudeUsageURLProtocol.setHandler { request in
+        setUsageHandler { request in
             XCTAssertTrue(request.value(forHTTPHeaderField: "User-Agent")?.hasPrefix("Headroom/") == true)
             if request.url == ClaudeUsageClient.tokenURL {
                 let body = try XCTUnwrap(try JSONSerialization.jsonObject(with: self.requestBody(request)) as? [String: Any])
@@ -76,7 +76,7 @@ final class ClaudeUsageClientTests: XCTestCase {
 
     func testRequestBlockDoesNotMasqueradeAsRevokedLogin() async throws {
         for shouldRefresh in [false, true] {
-            ClaudeUsageURLProtocol.setHandler { _ in
+            setUsageHandler { _ in
                 (403, Data("{\"error\":{\"type\":\"request_blocked\",\"message\":\"Request blocked by Cloudflare\"}}".utf8))
             }
             do {
@@ -92,7 +92,7 @@ final class ClaudeUsageClientTests: XCTestCase {
     }
 
     func testRevokedRefreshTokenRequiresLogin() async throws {
-        ClaudeUsageURLProtocol.setHandler { _ in
+        setUsageHandler { _ in
             (400, Data("{\"error\":\"invalid_grant\",\"error_description\":\"Refresh token not found or invalid\"}".utf8))
         }
         do {
@@ -103,6 +103,103 @@ final class ClaudeUsageClientTests: XCTestCase {
             XCTFail("Expected rejected refresh")
         } catch let error as ClaudeNativeError {
             XCTAssertEqual(error, .refreshRejected)
+        }
+    }
+
+    private func setUsageHandler(_ handler: @escaping (URLRequest) throws -> (Int, Data)) {
+        ClaudeUsageURLProtocol.setHandler { request in
+            if request.url == ClaudeUsageClient.profileURL {
+                return (200, Data(#"{"account":{"uuid":"account-test"}}"#.utf8))
+            }
+            return try handler(request)
+        }
+    }
+
+    func testWrongAccountTokenCannotReturnUsageOrReplaceSavedCredentials() async throws {
+        ClaudeUsageURLProtocol.setHandler { request in
+            XCTAssertEqual(request.url, ClaudeUsageClient.profileURL)
+            return (200, Data(#"{"account":{"uuid":"other-account"}}"#.utf8))
+        }
+        do {
+            _ = try await client().fetchUsage(
+                credential: oldCredential(), expectedAccountUUID: "account-test", refreshIfNeeded: false,
+                persistRefreshedCredential: { _ in XCTFail("Mismatched credential must not be saved") }
+            )
+            XCTFail("Expected account mismatch")
+        } catch let error as ClaudeNativeError {
+            XCTAssertEqual(error, .credentialAccountMismatch)
+        }
+    }
+
+    func testWrongAccountRefreshResponseCannotReplaceSavedCredentials() async throws {
+        ClaudeUsageURLProtocol.setHandler { request in
+            XCTAssertEqual(request.url, ClaudeUsageClient.tokenURL)
+            return (200, Data(#"{"access_token":"wrong-access","refresh_token":"wrong-refresh","expires_in":3600,"account":{"uuid":"other-account"}}"#.utf8))
+        }
+        do {
+            _ = try await client().fetchUsage(
+                credential: oldCredential(), expectedAccountUUID: "account-test", refreshIfNeeded: true,
+                persistRefreshedCredential: { _ in XCTFail("Mismatched refresh must not be saved") }
+            )
+            XCTFail("Expected account mismatch")
+        } catch let error as ClaudeNativeError {
+            XCTAssertEqual(error, .credentialAccountMismatch)
+        }
+    }
+
+    func testUnexpiredWrongAccountTokenCannotSpendRefreshToken() async throws {
+        let credential = String(data: try JSONSerialization.data(withJSONObject: [
+            "claudeAiOauth": [
+                "accessToken": "wrong-access", "refreshToken": "wrong-refresh",
+                "expiresAt": Date().addingTimeInterval(3600).timeIntervalSince1970 * 1000,
+            ],
+        ]), encoding: .utf8)!
+        ClaudeUsageURLProtocol.setHandler { request in
+            XCTAssertEqual(request.url, ClaudeUsageClient.profileURL)
+            return (200, Data(#"{"account":{"uuid":"other-account"}}"#.utf8))
+        }
+        do {
+            _ = try await client().fetchUsage(
+                credential: credential, expectedAccountUUID: "account-test", refreshIfNeeded: true,
+                persistRefreshedCredential: { _ in XCTFail("Mismatched credential must not be saved") }
+            )
+            XCTFail("Expected account mismatch before refresh")
+        } catch let error as ClaudeNativeError {
+            XCTAssertEqual(error, .credentialAccountMismatch)
+        }
+    }
+
+    func testCachedIdentityStillRejectsAnotherProfile() async throws {
+        let requests = CredentialRecorder()
+        ClaudeUsageURLProtocol.setHandler { request in
+            XCTAssertEqual(request.url, ClaudeUsageClient.profileURL)
+            XCTAssertNil(requests.value)
+            requests.record("checked")
+            return (200, Data(#"{"account":{"uuid":"account-test"}}"#.utf8))
+        }
+        let provider = client()
+        try await provider.validateAccount(credential: oldCredential(), expectedAccountUUID: "account-test")
+        do {
+            try await provider.validateAccount(credential: oldCredential(), expectedAccountUUID: "other-account")
+            XCTFail("Expected cached identity mismatch")
+        } catch let error as ClaudeNativeError {
+            XCTAssertEqual(error, .credentialAccountMismatch)
+        }
+    }
+
+    func testProfileWithoutIdentityCannotAuthorizeUsage() async throws {
+        ClaudeUsageURLProtocol.setHandler { request in
+            XCTAssertEqual(request.url, ClaudeUsageClient.profileURL)
+            return (200, Data(#"{"account":{}}"#.utf8))
+        }
+        do {
+            _ = try await client().fetchUsage(
+                credential: oldCredential(), expectedAccountUUID: "account-test", refreshIfNeeded: false,
+                persistRefreshedCredential: { _ in XCTFail("Unverified credential must not be saved") }
+            )
+            XCTFail("Expected missing identity")
+        } catch let error as ClaudeNativeError {
+            XCTAssertEqual(error, .invalidAccountMetadata)
         }
     }
 

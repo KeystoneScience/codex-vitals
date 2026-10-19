@@ -60,6 +60,11 @@ struct ContentView: View {
 
                 if let accountActionError = viewModel.accountActionError {
                     FooterView(message: accountActionError)
+                } else if let notice = viewModel.accountActionNotice {
+                    Text(notice)
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 12).padding(.vertical, 4)
                 }
             }
         }

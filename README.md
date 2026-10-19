@@ -109,6 +109,8 @@ Download the latest macOS ZIP from [your repository’s Releases](https://github
 
 To add a Claude account, open Headroom, choose the account-add button, and select **Add Claude Account**. The app starts the official `claude auth login` browser flow, then stores that account's saved credential in its own macOS Keychain service. Switching remains a manual action; Headroom does not automatically rotate accounts.
 
+Claude switching applies to **Claude Code CLI** credentials. **Claude Desktop**, including its Code tab, has a separate sign-in: use its account menu to log out and sign in to the desired account. Headroom verifies each token's account with Anthropic before saving it or displaying its usage.
+
 ### Windows
 
 Windows source is included; see [Windows build instructions](windows/README.md). A Windows release has not yet been published from this repository. The Windows updater points exclusively to this repository’s Windows feed.

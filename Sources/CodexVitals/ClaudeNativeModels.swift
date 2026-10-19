@@ -324,6 +324,7 @@ enum ClaudeNativeError: LocalizedError, Equatable, Sendable {
     case keychainValueTooLarge
     case invalidCredentials
     case invalidAccountMetadata
+    case credentialAccountMismatch
     case profileMissing
     case activeAccountRemoval
     case loginFailed(Int)
@@ -352,6 +353,8 @@ enum ClaudeNativeError: LocalizedError, Equatable, Sendable {
             return "Claude credentials are invalid."
         case .invalidAccountMetadata:
             return "Claude account metadata is unavailable."
+        case .credentialAccountMismatch:
+            return "Claude login belongs to a different account. Reconnect this account."
         case .profileMissing:
             return "Claude account profile is missing."
         case .activeAccountRemoval:

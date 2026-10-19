@@ -45,12 +45,16 @@ actor ClaudeAccountService {
     ) async -> ClaudeNativeLoadResult {
         seedUsageCache(from: previousAccounts, fetchedAt: previousFetchedAt)
         var integrationError: String?
+        var verifiedActiveProfileID: String?
         do {
             try recoverInterruptedSwitchIfNeeded()
-            _ = try captureCurrentActiveIfAvailable()
+            verifiedActiveProfileID = try await captureCurrentActiveIfAvailable()?.id
         } catch ClaudeNativeError.invalidCredentials {
             // A cleared Claude Code login must not hide a valid saved profile.
             // Each account's saved credential determines its displayed status.
+        } catch ClaudeNativeError.credentialAccountMismatch {
+            // Desktop can leave account metadata out of sync with CLI credentials.
+            // Never copy that token into the profile named by unverified metadata.
         } catch {
             integrationError = error.localizedDescription
         }
@@ -62,14 +66,13 @@ actor ClaudeAccountService {
             return ClaudeNativeLoadResult(accounts: [], errorMessage: error.localizedDescription)
         }
 
-        let activeOAuthAccount = (try? configStore.read())?.oauthAccount
         var indexedAccounts: [(Int, Account)] = []
         for start in stride(from: 0, to: profiles.count, by: 4) {
             let end = min(start + 4, profiles.count)
             await withTaskGroup(of: (Int, Account).self) { group in
                 for index in start..<end {
                     let profile = profiles[index]
-                    let isActive = activeOAuthAccount.map(profile.matches(oauthAccount:)) ?? false
+                    let isActive = profile.id == verifiedActiveProfileID
                     group.addTask { [self] in
                         (index, await loadAccount(profile, isActive: isActive, now: now))
                     }
@@ -90,9 +93,9 @@ actor ClaudeAccountService {
     func addAccount() async throws -> ClaudeNativeProfile {
         let command = try ClaudeCLI.resolveLoginCommand(email: nil, fileManager: fileManager)
         try Task.checkCancellation()
-        try captureCurrentActiveBeforeLogin()
+        try await captureCurrentActiveBeforeLogin()
         try await runLogin(command: command)
-        let profile = try captureLoggedInAccount(expectedProfile: nil)
+        let profile = try await captureLoggedInAccount(expectedProfile: nil)
         try accountStore.setHidden(profileID: profile.id, hidden: false)
         invalidateUsageState(profileID: profile.id)
         return try accountStore.profile(id: profile.id) ?? profile
@@ -105,9 +108,9 @@ actor ClaudeAccountService {
         }
         let command = try ClaudeCLI.resolveLoginCommand(email: expected.email, fileManager: fileManager)
         try Task.checkCancellation()
-        try captureCurrentActiveBeforeLogin()
+        try await captureCurrentActiveBeforeLogin()
         try await runLogin(command: command)
-        let actual = try captureLoggedInAccount(expectedProfile: expected)
+        let actual = try await captureLoggedInAccount(expectedProfile: expected)
         guard actual.id == expected.id else {
             throw ClaudeNativeError.wrongAccount(expected: expected.email, actual: actual.email)
         }
@@ -182,7 +185,7 @@ actor ClaudeAccountService {
         }
     }
 
-    func switchAccount(profileID: String) throws {
+    func switchAccount(profileID: String) async throws {
         guard let target = try accountStore.profile(id: profileID),
               let targetCredential = try keychain.read(
                 service: ClaudeKeychainStore.profileService,
@@ -191,6 +194,7 @@ actor ClaudeAccountService {
             throw ClaudeNativeError.profileMissing
         }
         let targetEnvelope = try ClaudeCredentialEnvelope(rawValue: targetCredential)
+        try await usageClient.validateAccount(credential: targetCredential, expectedAccountUUID: target.accountUUID)
         guard let targetOAuthAccount = target.oauthAccount else {
             throw ClaudeNativeError.invalidAccountMetadata
         }
@@ -204,12 +208,19 @@ actor ClaudeAccountService {
         let originalEnvelope = originalCredential.flatMap { try? ClaudeCredentialEnvelope(rawValue: $0) }
         if target.matches(oauthAccount: configSnapshot.oauthAccount ?? [:]), originalEnvelope != nil {
             if let originalCredential {
-                try writeProfileCredential(originalCredential, profileID: target.id)
+                do {
+                    try await usageClient.validateAccount(credential: originalCredential, expectedAccountUUID: target.accountUUID)
+                    try writeProfileCredential(originalCredential, profileID: target.id)
+                    return
+                } catch ClaudeNativeError.credentialAccountMismatch {
+                    // Restore the verified target instead of trusting stale metadata.
+                } catch ClaudeNativeError.refreshRejected {
+                    // An expired outgoing login must not block a valid saved target.
+                }
             }
-            return
         }
 
-        try syncOutgoingAccount(
+        try await syncOutgoingAccount(
             configSnapshot: configSnapshot,
             activeCredential: originalCredential
         )
@@ -258,7 +269,7 @@ actor ClaudeAccountService {
         }
 
         do {
-            guard let credential = try credentialForUsage(profile, isActive: isActive) else {
+            guard let credential = try await credentialForUsage(profile, isActive: isActive) else {
                 return account(
                     profile,
                     isActive: isActive,
@@ -297,7 +308,8 @@ actor ClaudeAccountService {
         } catch let error as ClaudeNativeError {
             let status: ClaudeAccountStatus
             switch error {
-            case .refreshRejected:
+            case .refreshRejected, .credentialAccountMismatch:
+                invalidateUsageState(profileID: profile.id)
                 status = .reloginRequired
             case .invalidCredentials:
                 status = .noCredentials
@@ -327,16 +339,21 @@ actor ClaudeAccountService {
     private func credentialForUsage(
         _ profile: ClaudeNativeProfile,
         isActive: Bool
-    ) throws -> (value: String, refreshIfNeeded: Bool)? {
+    ) async throws -> (value: String, refreshIfNeeded: Bool)? {
         if isActive,
            let active = try keychain.read(
                service: ClaudeKeychainStore.activeService,
                account: keychain.activeAccountName
            ),
            (try? ClaudeCredentialEnvelope(rawValue: active)) != nil {
-            try writeProfileCredential(active, profileID: profile.id)
-            // Claude Code owns rotation while a valid live credential exists.
-            return (active, false)
+            do {
+                try await usageClient.validateAccount(credential: active, expectedAccountUUID: profile.accountUUID)
+                try writeProfileCredential(active, profileID: profile.id)
+                // Claude Code owns rotation while a valid live credential exists.
+                return (active, false)
+            } catch ClaudeNativeError.credentialAccountMismatch {
+                // Try this account's saved credential without overwriting it.
+            }
         }
 
         for account in [profile.id, previousCredentialAccount(profile.id)] {
@@ -481,7 +498,7 @@ actor ClaudeAccountService {
     }
 
     @discardableResult
-    private func captureCurrentActiveIfAvailable() throws -> ClaudeNativeProfile? {
+    private func captureCurrentActiveIfAvailable() async throws -> ClaudeNativeProfile? {
         guard let config = try currentConfigIfPresent(),
               let oauthAccount = config.oauthAccount else {
             return nil
@@ -494,12 +511,28 @@ actor ClaudeAccountService {
         }
         _ = try ClaudeCredentialEnvelope(rawValue: credential)
         let identity = ClaudeIdentity(oauthAccount: oauthAccount)
+        do {
+            try await usageClient.validateAccount(credential: credential, expectedAccountUUID: identity.accountUUID)
+        } catch ClaudeNativeError.credentialAccountMismatch {
+            // Reuse the provider-verified identity when Desktop rewrites stale CLI
+            // metadata. Only an existing matching profile may receive this token.
+            for candidate in try accountStore.load() where candidate.accountUUID != identity.accountUUID {
+                do {
+                    try await usageClient.validateAccount(credential: credential, expectedAccountUUID: candidate.accountUUID)
+                    try writeProfileCredential(credential, profileID: candidate.id)
+                    return candidate
+                } catch ClaudeNativeError.credentialAccountMismatch {
+                    continue
+                }
+            }
+            throw ClaudeNativeError.credentialAccountMismatch
+        }
         let profile = try accountStore.upsert(identity: identity, oauthAccount: oauthAccount)
         try writeProfileCredential(credential, profileID: profile.id)
         return profile
     }
 
-    func captureCurrentActiveBeforeLogin() throws {
+    func captureCurrentActiveBeforeLogin() async throws {
         let config = try currentConfigIfPresent()
         let credential = try keychain.read(
             service: ClaudeKeychainStore.activeService,
@@ -510,7 +543,13 @@ actor ClaudeAccountService {
         guard config?.oauthAccount != nil else {
             throw ClaudeNativeError.invalidAccountMetadata
         }
-        _ = try captureCurrentActiveIfAvailable()
+        do {
+            _ = try await captureCurrentActiveIfAvailable()
+        } catch ClaudeNativeError.credentialAccountMismatch {
+            // Reconnect must still be available when Desktop metadata is stale.
+        } catch ClaudeNativeError.refreshRejected {
+            // An expired active login must not block its own reconnect flow.
+        }
     }
 
     private func currentConfigIfPresent() throws -> ClaudeGlobalConfigSnapshot? {
@@ -574,8 +613,8 @@ actor ClaudeAccountService {
 
     private func captureLoggedInAccount(
         expectedProfile: ClaudeNativeProfile?
-    ) throws -> ClaudeNativeProfile {
-        guard let profile = try captureCurrentActiveIfAvailable() else {
+    ) async throws -> ClaudeNativeProfile {
+        guard let profile = try await captureCurrentActiveIfAvailable() else {
             throw ClaudeNativeError.invalidAccountMetadata
         }
         if let expectedProfile, profile.id != expectedProfile.id {
@@ -587,12 +626,19 @@ actor ClaudeAccountService {
     private func syncOutgoingAccount(
         configSnapshot: ClaudeGlobalConfigSnapshot,
         activeCredential: String?
-    ) throws {
+    ) async throws {
         guard let oauthAccount = configSnapshot.oauthAccount,
               let activeCredential,
               (try? ClaudeCredentialEnvelope(rawValue: activeCredential)) != nil else { return }
         let identity = ClaudeIdentity(oauthAccount: oauthAccount)
         guard identity.isValid else { return }
+        do {
+            try await usageClient.validateAccount(credential: activeCredential, expectedAccountUUID: identity.accountUUID)
+        } catch ClaudeNativeError.credentialAccountMismatch {
+            return
+        } catch ClaudeNativeError.refreshRejected {
+            return
+        }
         let profile = try accountStore.upsert(identity: identity, oauthAccount: oauthAccount)
         try writeProfileCredential(activeCredential, profileID: profile.id)
     }

@@ -16,6 +16,7 @@ final class UsageViewModel: ObservableObject {
     @Published var switchingAccountID: String?
     @Published var removingAccountID: String?
     @Published var accountActionError: String?
+    @Published var accountActionNotice: String?
     @Published var codexLoginStatus: CodexLoginStatus = .empty
     @Published var activeCodexProfileKey: String?
     @Published var isCodexInstalled = false
@@ -897,6 +898,7 @@ final class UsageViewModel: ObservableObject {
               !needsRelogin(account) else { return }
         switchingAccountID = account.id
         accountActionError = nil
+        accountActionNotice = nil
 
         switchTask = Task.detached { [switchService, claudeService] in
             do {
@@ -915,6 +917,7 @@ final class UsageViewModel: ObservableObject {
                     self.switchingAccountID = nil
                     self.switchTask = nil
                     if account.isClaudeAccount {
+                        self.accountActionNotice = "Claude Code CLI switched. Claude Desktop uses a separate sign-in."
                         self.refresh()
                     }
                 }
